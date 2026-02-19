@@ -67,6 +67,7 @@ pub enum BattleStatusEffect {
 }
 
 impl BattleStatusEffect {
+    #[allow(dead_code)]
     pub fn is_negative(&self) -> bool {
         matches!(
             self,
@@ -324,38 +325,55 @@ pub struct StartBattleEvent {
 #[derive(Event, Debug, Clone)]
 pub struct EndBattleEvent {
     pub victory: bool,
+    #[allow(dead_code)]
     pub rewards: Option<BattleRewards>,
+    #[allow(dead_code)]
     pub level_ups: Vec<LevelUpEvent>,
 }
 
 #[derive(Event, Debug, Clone)]
 pub struct DamageEvent {
+    #[allow(dead_code)]
     pub attacker_id: u32,
+    #[allow(dead_code)]
     pub target_id: u32,
+    #[allow(dead_code)]
     pub damage: i32,
+    #[allow(dead_code)]
     pub element: Option<Element>,
+    #[allow(dead_code)]
     pub was_blocked: bool,
 }
 
 #[derive(Event, Debug, Clone)]
 pub struct HealEvent {
+    #[allow(dead_code)]
     pub source_id: u32,
+    #[allow(dead_code)]
     pub target_id: u32,
+    #[allow(dead_code)]
     pub amount: i32,
+    #[allow(dead_code)]
     pub revived: bool,
 }
 
 #[derive(Event, Debug, Clone)]
 pub struct StatusAppliedEvent {
+    #[allow(dead_code)]
     pub target_id: u32,
+    #[allow(dead_code)]
     pub status: BattleStatusEffect,
+    #[allow(dead_code)]
     pub was_immune: bool,
 }
 
 #[derive(Event, Debug, Clone)]
 pub struct UnitKoEvent {
+    #[allow(dead_code)]
     pub unit_id: u32,
+    #[allow(dead_code)]
     pub unit_name: String,
+    #[allow(dead_code)]
     pub side: UnitSide,
 }
 
@@ -368,10 +386,13 @@ pub mod constants {
     pub const MINIMUM_HEALING: i32 = 1;
     pub const DEFENSE_MULTIPLIER: f32 = 0.5;
     pub const PSYNERGY_DEFENSE_MULTIPLIER: f32 = 0.3;
+    #[allow(dead_code)]
     pub const MAX_ELEMENTAL_RESIST: f32 = 0.75;
     pub const DEFEND_DAMAGE_REDUCTION: f32 = 0.5;
 
+    #[allow(dead_code)]
     pub const ELEMENT_ADVANTAGE_MULTIPLIER: f32 = 1.25;
+    #[allow(dead_code)]
     pub const ELEMENT_DISADVANTAGE_MULTIPLIER: f32 = 0.75;
 
     pub const POISON_PERCENT: f32 = 0.08;

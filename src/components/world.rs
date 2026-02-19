@@ -14,6 +14,7 @@ impl GridPosition {
     }
 
     /// Manhattan distance to another grid position.
+    #[allow(dead_code)]
     pub fn distance_to(&self, other: &GridPosition) -> i32 {
         (self.x - other.x).abs() + (self.y - other.y).abs()
     }
@@ -66,12 +67,14 @@ pub struct EncounterZone;
 
 /// A trigger area (e.g., building entrance, zone transition).
 #[derive(Component, Debug, Reflect)]
+#[allow(dead_code)]
 pub struct Trigger {
     pub trigger_type: TriggerType,
 }
 
 /// What a trigger does when the player steps on it.
 #[derive(Debug, Clone, Reflect)]
+#[allow(dead_code)]
 pub enum TriggerType {
     EnterBuilding(String),
     ZoneTransition(String),

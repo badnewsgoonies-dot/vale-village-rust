@@ -36,8 +36,11 @@ pub struct GameData {
     pub abilities: HashMap<String, Ability>,
     pub units: HashMap<String, UnitDefinition>,
     pub enemies: HashMap<String, EnemyDefinition>,
+    #[allow(dead_code)]
     pub items: HashMap<String, ItemDefinition>,
+    #[allow(dead_code)]
     pub equipment: HashMap<String, EquipmentDefinition>,
+    #[allow(dead_code)]
     pub djinn: HashMap<String, DjinnDefinition>,
 }
 

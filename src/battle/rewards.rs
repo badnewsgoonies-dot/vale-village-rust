@@ -10,6 +10,7 @@ use crate::battle::types::{
 // XP / Level
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 pub fn xp_for_level(level: u8) -> u32 {
     let idx = (level as usize).clamp(1, constants::MAX_LEVEL as usize);
     constants::XP_CURVE[idx]

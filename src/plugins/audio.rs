@@ -37,8 +37,11 @@ pub struct MusicTracks {
     pub title_theme: Option<Handle<AudioSource>>,
     pub overworld_theme: Option<Handle<AudioSource>>,
     pub battle_theme: Option<Handle<AudioSource>>,
+    #[allow(dead_code)]
     pub boss_theme: Option<Handle<AudioSource>>,
+    #[allow(dead_code)]
     pub shop_theme: Option<Handle<AudioSource>>,
+    #[allow(dead_code)]
     pub victory_fanfare: Option<Handle<AudioSource>>,
 }
 

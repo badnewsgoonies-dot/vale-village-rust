@@ -31,10 +31,16 @@ const SELECTED_BG: Color = Color::srgba(0.85, 0.65, 0.13, 0.25);
 struct BattleRoot;
 
 #[derive(Component)]
-struct EnemyDisplay { index: usize }
+struct EnemyDisplay {
+    #[allow(dead_code)]
+    index: usize,
+}
 
 #[derive(Component)]
-struct PartyDisplay { index: usize }
+struct PartyDisplay {
+    #[allow(dead_code)]
+    index: usize,
+}
 
 #[derive(Component)]
 struct HpBar { unit_index: usize, is_enemy: bool }
@@ -84,6 +90,7 @@ struct EnemyTargetIndicator { index: usize }
 // ── Resources ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 enum BattleUiPhase {
     ActionSelect,
     TargetSelect,

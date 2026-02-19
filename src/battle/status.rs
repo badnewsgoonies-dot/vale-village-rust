@@ -8,8 +8,11 @@ use rand::Rng;
 /// Result of processing status ticks for a single unit.
 #[derive(Debug, Clone)]
 pub struct StatusTickResult {
+    #[allow(dead_code)]
     pub damage: i32,
+    #[allow(dead_code)]
     pub healing: i32,
+    #[allow(dead_code)]
     pub messages: Vec<String>,
 }
 

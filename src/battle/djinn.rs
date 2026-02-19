@@ -11,12 +11,14 @@ use crate::battle::types::{
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum ElementCompatibility {
     Same,
     Counter,
     Neutral,
 }
 
+#[allow(dead_code)]
 pub fn element_compatibility(unit_element: Element, djinn_element: Element) -> ElementCompatibility {
     if unit_element == djinn_element { return ElementCompatibility::Same; }
     let is_counter = matches!(
@@ -32,6 +34,7 @@ pub fn element_compatibility(unit_element: Element, djinn_element: Element) -> E
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DjinnSynergy {
     pub atk_bonus: i32,
     pub def_bonus: i32,
@@ -40,6 +43,7 @@ pub struct DjinnSynergy {
     pub abilities_unlocked: Vec<String>,
 }
 
+#[allow(dead_code)]
 pub fn calculate_djinn_synergy(set_elements: &[Element]) -> DjinnSynergy {
     if set_elements.is_empty() {
         return DjinnSynergy { atk_bonus: 0, def_bonus: 0, spd_bonus: 0, class_name: "Base".into(), abilities_unlocked: vec![] };
@@ -119,18 +123,21 @@ pub fn tick_djinn_recovery(djinn_state: &mut DjinnBattleRes) -> Vec<String> {
     recovered
 }
 
+#[allow(dead_code)]
 pub fn get_standby_djinn(unit_id: u32, djinn_state: &DjinnBattleRes) -> Vec<String> {
     djinn_state.trackers.iter()
         .filter(|t| t.owner_unit_id == unit_id && t.state == DjinnBattleState::Standby)
         .map(|t| t.djinn_id.clone()).collect()
 }
 
+#[allow(dead_code)]
 pub fn get_set_djinn(unit_id: u32, djinn_state: &DjinnBattleRes) -> Vec<String> {
     djinn_state.trackers.iter()
         .filter(|t| t.owner_unit_id == unit_id && t.state == DjinnBattleState::Set)
         .map(|t| t.djinn_id.clone()).collect()
 }
 
+#[allow(dead_code)]
 pub fn can_unleash(djinn_id: &str, djinn_state: &DjinnBattleRes) -> bool {
     djinn_state.trackers.iter().any(|t| t.djinn_id == djinn_id && t.state == DjinnBattleState::Set)
 }

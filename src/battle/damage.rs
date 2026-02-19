@@ -201,6 +201,7 @@ pub fn apply_healing(unit: &mut BattleUnit, amount: i32, revives_fallen: bool) {
 pub struct DamageResult {
     pub actual_damage: i32,
     pub was_blocked: bool,
+    #[allow(dead_code)]
     pub auto_revived: bool,
 }
 

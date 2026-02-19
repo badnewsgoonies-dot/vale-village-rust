@@ -325,6 +325,7 @@ impl SaveSystem {
     }
 
     /// Check which slots have save data.
+    #[allow(dead_code)]
     pub fn list_saves(&self) -> Vec<(usize, bool)> {
         (0..self.max_slots)
             .map(|slot| (slot, self.slot_path(slot).exists()))
@@ -332,6 +333,7 @@ impl SaveSystem {
     }
 
     /// Delete a save slot.
+    #[allow(dead_code)]
     pub fn delete(&self, slot: usize) -> Result<(), String> {
         let path = self.slot_path(slot);
         if path.exists() {
