@@ -1,3 +1,4 @@
+mod battle;
 mod components;
 mod data;
 mod plugins;
@@ -5,9 +6,13 @@ mod plugins;
 use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
 
+use battle::BattlePlugin;
 use plugins::core_plugin::CoreGamePlugin;
 use plugins::save::SavePlugin;
 use plugins::audio::GameAudioPlugin;
+use plugins::ui::UiPlugin;
+use plugins::overworld::OverworldPlugin;
+use plugins::battle_ui::BattleUiPlugin;
 
 fn main() {
     App::new()
@@ -27,11 +32,16 @@ fn main() {
                 // Pixel-art rendering: nearest-neighbor sampling
                 .set(ImagePlugin::default_nearest()),
         )
-        // Game plugins
+        // Core systems
         .add_plugins(CoreGamePlugin)
         .add_plugins(SavePlugin)
         .add_plugins(GameAudioPlugin)
-        // Camera
+        // UI & gameplay
+        .add_plugins(UiPlugin)
+        .add_plugins(OverworldPlugin)
+        .add_plugins(BattleUiPlugin)
+        .add_plugins(BattlePlugin)
+        // Default camera (used by UI screens; overworld spawns its own)
         .add_systems(Startup, setup_camera)
         .run();
 }
