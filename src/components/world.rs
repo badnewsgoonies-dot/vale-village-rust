@@ -57,6 +57,12 @@ pub struct Npc {
     pub dialog: Vec<String>,
 }
 
+#[derive(Component, Debug, Reflect, Clone)]
+pub struct ShopKeeper {
+    pub items: Vec<String>,
+    pub equipment: Vec<String>,
+}
+
 /// Marker for solid tiles that block movement.
 #[derive(Component, Debug, Default, Reflect)]
 pub struct Solid;

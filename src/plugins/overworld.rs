@@ -7,18 +7,13 @@
 use bevy::prelude::*;
 use rand::Rng;
 
+use super::core_plugin::GameState;
+use super::ui::{ScreenTransition, start_transition};
 use crate::battle::types::{
-    BattlePhase,
-    BattleUnit,
-    EndBattleEvent,
-    GrowthRates,
-    StartBattleEvent,
-    UnitSide,
+    BattlePhase, BattleUnit, EndBattleEvent, GrowthRates, StartBattleEvent, UnitSide,
 };
 use crate::components::world::*;
 use crate::data::enemies::{self, EnemyDefinition};
-use super::core_plugin::GameState;
-use super::ui::{start_transition, ScreenTransition};
 
 // ── Constants ─────────────────────────────────────────────────────────
 const TILE_SIZE: f32 = 32.0;
@@ -267,7 +262,11 @@ fn setup_overworld(
             let tile = tilemap.get(x, y);
             let color = match tile {
                 0 => {
-                    if (x + y) % 2 == 0 { GRASS } else { GRASS_ALT }
+                    if (x + y) % 2 == 0 {
+                        GRASS
+                    } else {
+                        GRASS_ALT
+                    }
                 }
                 1 => PATH,
                 2 => WALL,
@@ -280,11 +279,7 @@ fn setup_overworld(
             let mut tile_entity = commands.spawn((
                 OverworldRoot,
                 Sprite::from_color(color, Vec2::new(TILE_SIZE, TILE_SIZE)),
-                Transform::from_xyz(
-                    x as f32 * TILE_SIZE,
-                    -(y as f32) * TILE_SIZE,
-                    0.0,
-                ),
+                Transform::from_xyz(x as f32 * TILE_SIZE, -(y as f32) * TILE_SIZE, 0.0),
             ));
             if tilemap.is_encounter_zone(x, y) {
                 tile_entity.insert(EncounterZone);
@@ -311,24 +306,48 @@ fn setup_overworld(
     ));
 
     // NPCs
-    spawn_npc(&mut commands, "Elder Dora", GridPosition::new(10, 12), NPC_ALT_COLOR, vec![
-        "Welcome to Vale Village, young adept.".into(),
-        "The tower to the north holds great danger...".into(),
-        "But also great treasure. Prepare yourself well.".into(),
-    ]);
-    spawn_npc(&mut commands, "Shopkeeper", GridPosition::new(5, 8), NPC_COLOR, vec![
-        "Welcome! Take a look at my wares.".into(),
-        "We have the finest potions in all the land!".into(),
-    ]);
-    spawn_npc(&mut commands, "Innkeeper", GridPosition::new(22, 8), NPC_COLOR, vec![
-        "Rest here to recover your strength.".into(),
-        "That'll be 20 gold. ...Just kidding, it's free for now!".into(),
-    ]);
-    spawn_npc(&mut commands, "Guard", GridPosition::new(15, 5), NPC_ALT_COLOR, vec![
-        "The path north leads to the Corrupted Tower.".into(),
-        "Only the bravest adventurers dare enter.".into(),
-        "Make sure you have Djinn equipped before you go!".into(),
-    ]);
+    spawn_npc(
+        &mut commands,
+        "Elder Dora",
+        GridPosition::new(10, 12),
+        NPC_ALT_COLOR,
+        vec![
+            "Welcome to Vale Village, young adept.".into(),
+            "The tower to the north holds great danger...".into(),
+            "But also great treasure. Prepare yourself well.".into(),
+        ],
+    );
+    spawn_npc(
+        &mut commands,
+        "Shopkeeper",
+        GridPosition::new(5, 8),
+        NPC_COLOR,
+        vec![
+            "Welcome! Take a look at my wares.".into(),
+            "We have the finest potions in all the land!".into(),
+        ],
+    );
+    spawn_npc(
+        &mut commands,
+        "Innkeeper",
+        GridPosition::new(22, 8),
+        NPC_COLOR,
+        vec![
+            "Rest here to recover your strength.".into(),
+            "That'll be 20 gold. ...Just kidding, it's free for now!".into(),
+        ],
+    );
+    spawn_npc(
+        &mut commands,
+        "Guard",
+        GridPosition::new(15, 5),
+        NPC_ALT_COLOR,
+        vec![
+            "The path north leads to the Corrupted Tower.".into(),
+            "Only the bravest adventurers dare enter.".into(),
+            "Make sure you have Djinn equipped before you go!".into(),
+        ],
+    );
 
     // Dialog UI (hidden initially)
     commands
@@ -356,15 +375,24 @@ fn setup_overworld(
             parent.spawn((
                 DialogText,
                 Text::new(""),
-                TextFont { font_size: 20.0, ..default() },
+                TextFont {
+                    font_size: 20.0,
+                    ..default()
+                },
                 TextColor(DIALOG_TEXT_COLOR),
             ));
             parent.spawn((
                 DialogHintText,
                 Text::new("[Enter] to continue"),
-                TextFont { font_size: 12.0, ..default() },
+                TextFont {
+                    font_size: 12.0,
+                    ..default()
+                },
                 TextColor(Color::srgba(0.6, 0.55, 0.4, 0.7)),
-                Node { align_self: AlignSelf::FlexEnd, ..default() },
+                Node {
+                    align_self: AlignSelf::FlexEnd,
+                    ..default()
+                },
             ));
         });
 
@@ -386,11 +414,7 @@ fn spawn_npc(
         },
         pos,
         Sprite::from_color(color, Vec2::new(TILE_SIZE * 0.7, TILE_SIZE * 0.7)),
-        Transform::from_xyz(
-            pos.x as f32 * TILE_SIZE,
-            -(pos.y as f32) * TILE_SIZE,
-            5.0,
-        ),
+        Transform::from_xyz(pos.x as f32 * TILE_SIZE, -(pos.y as f32) * TILE_SIZE, 5.0),
     ));
 }
 
@@ -472,9 +496,8 @@ fn player_movement(
 }
 
 fn build_random_encounter(rng: &mut impl Rng) -> Vec<BattleUnit> {
-    let mut all_enemies: Vec<EnemyDefinition> = enemies::build_enemy_registry()
-        .into_values()
-        .collect();
+    let mut all_enemies: Vec<EnemyDefinition> =
+        enemies::build_enemy_registry().into_values().collect();
 
     if all_enemies.is_empty() {
         return Vec::new();
@@ -531,8 +554,12 @@ fn camera_follow_player(
     player_query: Query<&Transform, (With<Player>, Without<OverworldCamera>)>,
     mut cam_query: Query<&mut Transform, (With<OverworldCamera>, Without<Player>)>,
 ) {
-    let Ok(player_tf) = player_query.get_single() else { return };
-    let Ok(mut cam_tf) = cam_query.get_single_mut() else { return };
+    let Ok(player_tf) = player_query.get_single() else {
+        return;
+    };
+    let Ok(mut cam_tf) = cam_query.get_single_mut() else {
+        return;
+    };
 
     let target = Vec3::new(
         player_tf.translation.x,
@@ -557,7 +584,9 @@ fn player_interact(
         return;
     }
 
-    let Ok((player_pos, movement)) = player_query.get_single() else { return };
+    let Ok((player_pos, movement)) = player_query.get_single() else {
+        return;
+    };
 
     let (fx, fy) = match movement.facing {
         Facing::Up => (0, -1),
@@ -605,10 +634,7 @@ fn dialog_input(
             }
         } else {
             if let Ok(mut text) = dialog_text.get_single_mut() {
-                **text = format!(
-                    "{}: {}",
-                    dialog.speaker, dialog.lines[dialog.current_line]
-                );
+                **text = format!("{}: {}", dialog.speaker, dialog.lines[dialog.current_line]);
             }
         }
     }
@@ -618,8 +644,13 @@ fn overworld_pause(
     keys: Res<ButtonInput<KeyCode>>,
     dialog: Res<DialogState>,
     mut transition: ResMut<ScreenTransition>,
+    mut next_state: ResMut<NextState<GameState>>,
 ) {
     if dialog.active {
+        return;
+    }
+    if keys.just_pressed(KeyCode::Tab) {
+        next_state.set(GameState::Inventory);
         return;
     }
     if keys.just_pressed(KeyCode::Escape) {

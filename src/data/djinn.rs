@@ -43,7 +43,14 @@ pub struct StatModifier {
 
 impl Default for StatModifier {
     fn default() -> Self {
-        Self { atk: 0, def: 0, mag: 0, spd: 0, hp: 0, pp: 0 }
+        Self {
+            atk: 0,
+            def: 0,
+            mag: 0,
+            spd: 0,
+            hp: 0,
+            pp: 0,
+        }
     }
 }
 
@@ -89,7 +96,11 @@ pub fn build_djinn_registry() -> HashMap<String, DjinnDefinition> {
             name: "Flint".into(),
             element: Element::Venus,
             tier: DjinnTier::Tier1,
-            set_bonus: StatModifier { atk: 3, def: 2, ..Default::default() },
+            set_bonus: StatModifier {
+                atk: 3,
+                def: 2,
+                ..Default::default()
+            },
             summon_effect: SummonEffect {
                 kind: SummonEffectKind::Damage { amount: 80 },
                 description: "Stone Barrage scatters earth shards at all foes.".into(),
@@ -103,9 +114,18 @@ pub fn build_djinn_registry() -> HashMap<String, DjinnDefinition> {
             name: "Granite".into(),
             element: Element::Venus,
             tier: DjinnTier::Tier2,
-            set_bonus: StatModifier { def: 5, hp: 10, ..Default::default() },
+            set_bonus: StatModifier {
+                def: 5,
+                hp: 10,
+                ..Default::default()
+            },
             summon_effect: SummonEffect {
-                kind: SummonEffectKind::Buff { stat_bonus: StatModifier { def: 10, ..Default::default() } },
+                kind: SummonEffectKind::Buff {
+                    stat_bonus: StatModifier {
+                        def: 10,
+                        ..Default::default()
+                    },
+                },
                 description: "Terra Wall raises nearby allies' defenses.".into(),
             },
             granted_ability_ids: vec!["stone-skin-utility".into()],
@@ -117,7 +137,11 @@ pub fn build_djinn_registry() -> HashMap<String, DjinnDefinition> {
             name: "Bane".into(),
             element: Element::Venus,
             tier: DjinnTier::Tier3,
-            set_bonus: StatModifier { atk: 5, def: 3, ..Default::default() },
+            set_bonus: StatModifier {
+                atk: 5,
+                def: 3,
+                ..Default::default()
+            },
             summon_effect: SummonEffect {
                 kind: SummonEffectKind::Damage { amount: 300 },
                 description: "Earthquake shakes the whole battlefield.".into(),
@@ -126,14 +150,17 @@ pub fn build_djinn_registry() -> HashMap<String, DjinnDefinition> {
             recovery_turns: 4,
             description: "A devastating earth djinn.".into(),
         },
-
         // ===== MARS DJINN (3) =====
         DjinnDefinition {
             id: "forge".into(),
             name: "Forge".into(),
             element: Element::Mars,
             tier: DjinnTier::Tier1,
-            set_bonus: StatModifier { atk: 4, mag: 2, ..Default::default() },
+            set_bonus: StatModifier {
+                atk: 4,
+                mag: 2,
+                ..Default::default()
+            },
             summon_effect: SummonEffect {
                 kind: SummonEffectKind::Damage { amount: 120 },
                 description: "Firebolt barrage burns every foe.".into(),
@@ -147,9 +174,16 @@ pub fn build_djinn_registry() -> HashMap<String, DjinnDefinition> {
             name: "Fever".into(),
             element: Element::Mars,
             tier: DjinnTier::Tier2,
-            set_bonus: StatModifier { atk: 3, spd: 3, ..Default::default() },
+            set_bonus: StatModifier {
+                atk: 3,
+                spd: 3,
+                ..Default::default()
+            },
             summon_effect: SummonEffect {
-                kind: SummonEffectKind::StatusInflict { effect_type: "burn".into(), duration: 3 },
+                kind: SummonEffectKind::StatusInflict {
+                    effect_type: "burn".into(),
+                    duration: 3,
+                },
                 description: "Inflames all enemies with burning fever.".into(),
             },
             granted_ability_ids: vec!["burn-touch".into()],
@@ -161,7 +195,11 @@ pub fn build_djinn_registry() -> HashMap<String, DjinnDefinition> {
             name: "Corona".into(),
             element: Element::Mars,
             tier: DjinnTier::Tier3,
-            set_bonus: StatModifier { atk: 6, mag: 4, ..Default::default() },
+            set_bonus: StatModifier {
+                atk: 6,
+                mag: 4,
+                ..Default::default()
+            },
             summon_effect: SummonEffect {
                 kind: SummonEffectKind::Damage { amount: 350 },
                 description: "Solar corona erupts on the battlefield.".into(),
@@ -170,14 +208,17 @@ pub fn build_djinn_registry() -> HashMap<String, DjinnDefinition> {
             recovery_turns: 4,
             description: "A radiant mars djinn.".into(),
         },
-
         // ===== MERCURY DJINN (3) =====
         DjinnDefinition {
             id: "fizz".into(),
             name: "Fizz".into(),
             element: Element::Mercury,
             tier: DjinnTier::Tier1,
-            set_bonus: StatModifier { def: 2, mag: 3, ..Default::default() },
+            set_bonus: StatModifier {
+                def: 2,
+                mag: 3,
+                ..Default::default()
+            },
             summon_effect: SummonEffect {
                 kind: SummonEffectKind::Heal { amount: 100 },
                 description: "Healing waters wash over all allies.".into(),
@@ -191,9 +232,16 @@ pub fn build_djinn_registry() -> HashMap<String, DjinnDefinition> {
             name: "Sleet".into(),
             element: Element::Mercury,
             tier: DjinnTier::Tier2,
-            set_bonus: StatModifier { mag: 4, pp: 5, ..Default::default() },
+            set_bonus: StatModifier {
+                mag: 4,
+                pp: 5,
+                ..Default::default()
+            },
             summon_effect: SummonEffect {
-                kind: SummonEffectKind::StatusInflict { effect_type: "freeze".into(), duration: 2 },
+                kind: SummonEffectKind::StatusInflict {
+                    effect_type: "freeze".into(),
+                    duration: 2,
+                },
                 description: "Freezing sleet immobilizes all enemies.".into(),
             },
             granted_ability_ids: vec!["freeze-blast".into()],
@@ -205,7 +253,12 @@ pub fn build_djinn_registry() -> HashMap<String, DjinnDefinition> {
             name: "Serac".into(),
             element: Element::Mercury,
             tier: DjinnTier::Tier3,
-            set_bonus: StatModifier { mag: 6, def: 3, hp: 15, ..Default::default() },
+            set_bonus: StatModifier {
+                mag: 6,
+                def: 3,
+                hp: 15,
+                ..Default::default()
+            },
             summon_effect: SummonEffect {
                 kind: SummonEffectKind::Damage { amount: 280 },
                 description: "Glacial avalanche buries all foes.".into(),
@@ -214,14 +267,17 @@ pub fn build_djinn_registry() -> HashMap<String, DjinnDefinition> {
             recovery_turns: 4,
             description: "A glacial mercury djinn.".into(),
         },
-
         // ===== JUPITER DJINN (3) =====
         DjinnDefinition {
             id: "gust-djinn".into(),
             name: "Gust".into(),
             element: Element::Jupiter,
             tier: DjinnTier::Tier1,
-            set_bonus: StatModifier { spd: 4, atk: 2, ..Default::default() },
+            set_bonus: StatModifier {
+                spd: 4,
+                atk: 2,
+                ..Default::default()
+            },
             summon_effect: SummonEffect {
                 kind: SummonEffectKind::Damage { amount: 100 },
                 description: "Howling wind tears through enemies.".into(),
@@ -235,9 +291,16 @@ pub fn build_djinn_registry() -> HashMap<String, DjinnDefinition> {
             name: "Squall".into(),
             element: Element::Jupiter,
             tier: DjinnTier::Tier2,
-            set_bonus: StatModifier { spd: 3, mag: 3, ..Default::default() },
+            set_bonus: StatModifier {
+                spd: 3,
+                mag: 3,
+                ..Default::default()
+            },
             summon_effect: SummonEffect {
-                kind: SummonEffectKind::StatusInflict { effect_type: "paralyze".into(), duration: 2 },
+                kind: SummonEffectKind::StatusInflict {
+                    effect_type: "paralyze".into(),
+                    duration: 2,
+                },
                 description: "Lightning squall paralyzes all enemies.".into(),
             },
             granted_ability_ids: vec!["paralyze-shock".into()],
@@ -249,7 +312,12 @@ pub fn build_djinn_registry() -> HashMap<String, DjinnDefinition> {
             name: "Tempest".into(),
             element: Element::Jupiter,
             tier: DjinnTier::Tier3,
-            set_bonus: StatModifier { spd: 5, atk: 4, mag: 3, ..Default::default() },
+            set_bonus: StatModifier {
+                spd: 5,
+                atk: 4,
+                mag: 3,
+                ..Default::default()
+            },
             summon_effect: SummonEffect {
                 kind: SummonEffectKind::Damage { amount: 320 },
                 description: "Devastating tempest annihilates the battlefield.".into(),

@@ -67,10 +67,7 @@ pub fn battle_enter_system(
     }
 }
 
-pub fn battle_exit_system(
-    mut commands: Commands,
-    enemy_query: Query<(Entity, &BattleUnit)>,
-) {
+pub fn battle_exit_system(mut commands: Commands, enemy_query: Query<(Entity, &BattleUnit)>) {
     for (entity, unit) in enemy_query.iter() {
         if unit.side == UnitSide::Enemy {
             commands.entity(entity).despawn();
@@ -117,51 +114,100 @@ pub fn command_select_system(
             }
             if keyboard.just_pressed(KeyCode::Enter) {
                 match cmd_state.cursor_index {
-                    0 => { cmd_state.menu = CommandMenu::TargetSelect; cmd_state.cursor_index = 0; cmd_state.selected_ability = None; }
-                    1 => { cmd_state.menu = CommandMenu::AbilitySelect; cmd_state.cursor_index = 0; }
-                    2 => { cmd_state.menu = CommandMenu::DjinnSelect; cmd_state.cursor_index = 0; }
-                    3 => { cmd_state.menu = CommandMenu::ItemSelect; cmd_state.cursor_index = 0; }
-                    4 => { set_pending_action(&mut cmd_state, BattleAction::Defend); }
-                    5 => { set_pending_action(&mut cmd_state, BattleAction::Flee); }
+                    0 => {
+                        cmd_state.menu = CommandMenu::TargetSelect;
+                        cmd_state.cursor_index = 0;
+                        cmd_state.selected_ability = None;
+                    }
+                    1 => {
+                        cmd_state.menu = CommandMenu::AbilitySelect;
+                        cmd_state.cursor_index = 0;
+                    }
+                    2 => {
+                        cmd_state.menu = CommandMenu::DjinnSelect;
+                        cmd_state.cursor_index = 0;
+                    }
+                    3 => {
+                        cmd_state.menu = CommandMenu::ItemSelect;
+                        cmd_state.cursor_index = 0;
+                    }
+                    4 => {
+                        set_pending_action(&mut cmd_state, BattleAction::Defend);
+                    }
+                    5 => {
+                        set_pending_action(&mut cmd_state, BattleAction::Flee);
+                    }
                     _ => {}
                 }
             }
         }
         CommandMenu::AbilitySelect => {
             if keyboard.just_pressed(KeyCode::Escape) {
-                cmd_state.menu = CommandMenu::TopLevel; cmd_state.cursor_index = 0; return;
+                cmd_state.menu = CommandMenu::TopLevel;
+                cmd_state.cursor_index = 0;
+                return;
             }
             let unit = player_units[cmd_state.selecting_unit_index];
-            let affordable: Vec<&AbilityDef> = unit.ability_ids.iter()
+            let affordable: Vec<&AbilityDef> = unit
+                .ability_ids
+                .iter()
                 .filter_map(|id| game_data.abilities.get(id))
                 .filter(|a| a.mana_cost <= unit.pp && a.unlock_level <= unit.level)
                 .collect();
             if affordable.is_empty() {
-                cmd_state.menu = CommandMenu::TopLevel; cmd_state.cursor_index = 0; return;
+                cmd_state.menu = CommandMenu::TopLevel;
+                cmd_state.cursor_index = 0;
+                return;
             }
-            if keyboard.just_pressed(KeyCode::ArrowUp) && cmd_state.cursor_index > 0 { cmd_state.cursor_index -= 1; }
-            if keyboard.just_pressed(KeyCode::ArrowDown) && cmd_state.cursor_index < affordable.len() - 1 { cmd_state.cursor_index += 1; }
+            if keyboard.just_pressed(KeyCode::ArrowUp) && cmd_state.cursor_index > 0 {
+                cmd_state.cursor_index -= 1;
+            }
+            if keyboard.just_pressed(KeyCode::ArrowDown)
+                && cmd_state.cursor_index < affordable.len() - 1
+            {
+                cmd_state.cursor_index += 1;
+            }
             if keyboard.just_pressed(KeyCode::Enter) {
                 if let Some(ability) = affordable.get(cmd_state.cursor_index) {
                     cmd_state.selected_ability = Some(ability.id.clone());
-                    cmd_state.menu = CommandMenu::TargetSelect; cmd_state.cursor_index = 0;
+                    cmd_state.menu = CommandMenu::TargetSelect;
+                    cmd_state.cursor_index = 0;
                 }
             }
         }
         CommandMenu::TargetSelect => {
             if keyboard.just_pressed(KeyCode::Escape) {
-                cmd_state.menu = CommandMenu::TopLevel; cmd_state.cursor_index = 0; cmd_state.selected_ability = None; return;
+                cmd_state.menu = CommandMenu::TopLevel;
+                cmd_state.cursor_index = 0;
+                cmd_state.selected_ability = None;
+                return;
             }
-            let targets: Vec<&BattleUnit> = units.iter().filter(|u| u.side == UnitSide::Enemy && u.is_alive()).collect();
-            if targets.is_empty() { return; }
-            if keyboard.just_pressed(KeyCode::ArrowUp) && cmd_state.cursor_index > 0 { cmd_state.cursor_index -= 1; }
-            if keyboard.just_pressed(KeyCode::ArrowDown) && cmd_state.cursor_index < targets.len() - 1 { cmd_state.cursor_index += 1; }
+            let targets: Vec<&BattleUnit> = units
+                .iter()
+                .filter(|u| u.side == UnitSide::Enemy && u.is_alive())
+                .collect();
+            if targets.is_empty() {
+                return;
+            }
+            if keyboard.just_pressed(KeyCode::ArrowUp) && cmd_state.cursor_index > 0 {
+                cmd_state.cursor_index -= 1;
+            }
+            if keyboard.just_pressed(KeyCode::ArrowDown)
+                && cmd_state.cursor_index < targets.len() - 1
+            {
+                cmd_state.cursor_index += 1;
+            }
             if keyboard.just_pressed(KeyCode::Enter) {
                 if let Some(target) = targets.get(cmd_state.cursor_index) {
                     let action = if let Some(ref aid) = cmd_state.selected_ability {
-                        BattleAction::Ability { ability_id: aid.clone(), target_id: target.id }
+                        BattleAction::Ability {
+                            ability_id: aid.clone(),
+                            target_id: target.id,
+                        }
                     } else {
-                        BattleAction::Attack { target_id: target.id }
+                        BattleAction::Attack {
+                            target_id: target.id,
+                        }
                     };
                     set_pending_action(&mut cmd_state, action);
                     cmd_state.selected_ability = None;
@@ -170,24 +216,36 @@ pub fn command_select_system(
         }
         CommandMenu::DjinnSelect => {
             if keyboard.just_pressed(KeyCode::Escape) {
-                cmd_state.menu = CommandMenu::TopLevel; cmd_state.cursor_index = 0; return;
+                cmd_state.menu = CommandMenu::TopLevel;
+                cmd_state.cursor_index = 0;
+                return;
             }
             let unit = player_units[cmd_state.selecting_unit_index];
             if unit.djinn_ids.is_empty() {
-                cmd_state.menu = CommandMenu::TopLevel; cmd_state.cursor_index = 0; return;
+                cmd_state.menu = CommandMenu::TopLevel;
+                cmd_state.cursor_index = 0;
+                return;
             }
-            if keyboard.just_pressed(KeyCode::ArrowUp) && cmd_state.cursor_index > 0 { cmd_state.cursor_index -= 1; }
-            if keyboard.just_pressed(KeyCode::ArrowDown) && cmd_state.cursor_index < unit.djinn_ids.len() - 1 { cmd_state.cursor_index += 1; }
+            if keyboard.just_pressed(KeyCode::ArrowUp) && cmd_state.cursor_index > 0 {
+                cmd_state.cursor_index -= 1;
+            }
+            if keyboard.just_pressed(KeyCode::ArrowDown)
+                && cmd_state.cursor_index < unit.djinn_ids.len() - 1
+            {
+                cmd_state.cursor_index += 1;
+            }
             if keyboard.just_pressed(KeyCode::Enter) {
                 if let Some(djinn_id) = unit.djinn_ids.get(cmd_state.cursor_index) {
                     cmd_state.selected_djinn = Some(djinn_id.clone());
-                    cmd_state.menu = CommandMenu::TargetSelect; cmd_state.cursor_index = 0;
+                    cmd_state.menu = CommandMenu::TargetSelect;
+                    cmd_state.cursor_index = 0;
                 }
             }
         }
         CommandMenu::ItemSelect => {
             if keyboard.just_pressed(KeyCode::Escape) {
-                cmd_state.menu = CommandMenu::TopLevel; cmd_state.cursor_index = 0;
+                cmd_state.menu = CommandMenu::TopLevel;
+                cmd_state.cursor_index = 0;
             }
         }
     }
@@ -214,11 +272,20 @@ pub fn ai_select_system(
     units: Query<&BattleUnit>,
     game_data: Res<GameData>,
 ) {
-    let enemies: Vec<BattleUnit> = units.iter().filter(|u| u.side == UnitSide::Enemy && u.is_alive()).cloned().collect();
-    let players: Vec<BattleUnit> = units.iter().filter(|u| u.side == UnitSide::Player && u.is_alive()).cloned().collect();
+    let enemies: Vec<BattleUnit> = units
+        .iter()
+        .filter(|u| u.side == UnitSide::Enemy && u.is_alive())
+        .cloned()
+        .collect();
+    let players: Vec<BattleUnit> = units
+        .iter()
+        .filter(|u| u.side == UnitSide::Player && u.is_alive())
+        .cloned()
+        .collect();
 
     for enemy in &enemies {
-        let action = ai::enemy_choose_action(enemy, &enemies, &players, &game_data.abilities, &mut rng.0);
+        let action =
+            ai::enemy_choose_action(enemy, &enemies, &players, &game_data.abilities, &mut rng.0);
         battle_state.actions.push((enemy.id, action));
     }
     next_phase.set(BattlePhase::Resolution);
@@ -252,43 +319,90 @@ pub fn resolution_system(
         let all_units: Vec<BattleUnit> = units.iter().cloned().collect();
         battle_state.turn_order = turn_order::calculate_turn_order(&all_units, &mut rng.0);
 
-        let players_alive = units.iter().any(|u| u.side == UnitSide::Player && u.is_alive());
-        let enemies_alive = units.iter().any(|u| u.side == UnitSide::Enemy && u.is_alive());
+        let players_alive = units
+            .iter()
+            .any(|u| u.side == UnitSide::Player && u.is_alive());
+        let enemies_alive = units
+            .iter()
+            .any(|u| u.side == UnitSide::Enemy && u.is_alive());
 
-        if !enemies_alive { next_phase.set(BattlePhase::Victory); }
-        else if !players_alive { next_phase.set(BattlePhase::Defeat); }
-        else { next_phase.set(BattlePhase::CommandSelect); }
+        if !enemies_alive {
+            next_phase.set(BattlePhase::Victory);
+        } else if !players_alive {
+            next_phase.set(BattlePhase::Defeat);
+        } else {
+            next_phase.set(BattlePhase::CommandSelect);
+        }
         return;
     }
 
     let actor_id = battle_state.turn_order[idx];
     battle_state.current_actor_index += 1;
 
-    let action = battle_state.actions.iter().find(|(id, _)| *id == actor_id).map(|(_, a)| a.clone());
-    let action = match action { Some(a) => a, None => return };
+    let action = battle_state
+        .actions
+        .iter()
+        .find(|(id, _)| *id == actor_id)
+        .map(|(_, a)| a.clone());
+    let action = match action {
+        Some(a) => a,
+        None => return,
+    };
 
-    if !units.iter().any(|u| u.id == actor_id && u.is_alive()) { return; }
+    if !units.iter().any(|u| u.id == actor_id && u.is_alive()) {
+        return;
+    }
 
     // Status tick
     {
         if let Some(mut actor) = units.iter_mut().find(|u| u.id == actor_id) {
             let _tick = status::tick_status_effects(&mut actor, &mut rng.0);
             if actor.is_ko() {
-                ko_events.send(UnitKoEvent { unit_id: actor.id, unit_name: actor.name.clone(), side: actor.side });
+                ko_events.send(UnitKoEvent {
+                    unit_id: actor.id,
+                    unit_name: actor.name.clone(),
+                    side: actor.side,
+                });
                 return;
             }
-            if status::is_frozen_or_stunned(&actor) { return; }
-            if status::check_paralyze_failure(&actor, &mut rng.0) { return; }
+            if status::is_frozen_or_stunned(&actor) {
+                return;
+            }
+            if status::check_paralyze_failure(&actor, &mut rng.0) {
+                return;
+            }
         }
     }
 
     // Execute action
     match action {
         BattleAction::Attack { target_id } => {
-            execute_basic_attack(actor_id, target_id, &mut units, &mut rng, &mut damage_events, &mut ko_events, &battle_state);
+            execute_basic_attack(
+                actor_id,
+                target_id,
+                &mut units,
+                &mut rng,
+                &mut damage_events,
+                &mut ko_events,
+                &battle_state,
+            );
         }
-        BattleAction::Ability { ability_id, target_id } => {
-            execute_ability(actor_id, &ability_id, target_id, &mut units, &mut rng, &mut damage_events, &mut heal_events, &mut ko_events, &battle_state, &game_data);
+        BattleAction::Ability {
+            ability_id,
+            target_id,
+        } => {
+            execute_ability(
+                actor_id,
+                &ability_id,
+                target_id,
+                &mut units,
+                &mut rng,
+                &mut damage_events,
+                &mut heal_events,
+                &mut ko_events,
+                &battle_state,
+                &game_data,
+            );
         }
         BattleAction::Defend => {}
         BattleAction::Flee => {
@@ -300,18 +414,47 @@ pub fn resolution_system(
                 next_phase.set(BattlePhase::Inactive);
             }
         }
-        BattleAction::DjinnUnleash { djinn_id, target_id } => {
+        BattleAction::DjinnUnleash {
+            djinn_id,
+            target_id,
+        } => {
             let _ = djinn::unleash_djinn(&djinn_id, battle_state.turn_number, &mut djinn_state);
-            execute_basic_attack(actor_id, target_id, &mut units, &mut rng, &mut damage_events, &mut ko_events, &battle_state);
+            execute_basic_attack(
+                actor_id,
+                target_id,
+                &mut units,
+                &mut rng,
+                &mut damage_events,
+                &mut ko_events,
+                &battle_state,
+            );
         }
         BattleAction::Summon { djinn_ids } => {
-            if let Ok(summon_damage) = djinn::summon_djinn(&djinn_ids, battle_state.turn_number, &mut djinn_state) {
-                let enemy_ids: Vec<u32> = units.iter().filter(|u| u.side == UnitSide::Enemy && u.is_alive()).map(|u| u.id).collect();
+            if let Ok(summon_damage) =
+                djinn::summon_djinn(&djinn_ids, battle_state.turn_number, &mut djinn_state)
+            {
+                let enemy_ids: Vec<u32> = units
+                    .iter()
+                    .filter(|u| u.side == UnitSide::Enemy && u.is_alive())
+                    .map(|u| u.id)
+                    .collect();
                 for eid in enemy_ids {
                     if let Some(mut target) = units.iter_mut().find(|u| u.id == eid) {
                         let result = damage::apply_damage_with_shields(&mut target, summon_damage);
-                        damage_events.send(DamageEvent { attacker_id: actor_id, target_id: eid, damage: result.actual_damage, element: None, was_blocked: result.was_blocked });
-                        if target.is_ko() { ko_events.send(UnitKoEvent { unit_id: target.id, unit_name: target.name.clone(), side: target.side }); }
+                        damage_events.send(DamageEvent {
+                            attacker_id: actor_id,
+                            target_id: eid,
+                            damage: result.actual_damage,
+                            element: None,
+                            was_blocked: result.was_blocked,
+                        });
+                        if target.is_ko() {
+                            ko_events.send(UnitKoEvent {
+                                unit_id: target.id,
+                                unit_name: target.name.clone(),
+                                side: target.side,
+                            });
+                        }
                     }
                 }
             }
@@ -321,12 +464,21 @@ pub fn resolution_system(
 }
 
 fn avg_speed(units: &Query<&mut BattleUnit>, side: UnitSide) -> f32 {
-    let speeds: Vec<f32> = units.iter().filter(|u| u.side == side && u.is_alive()).map(|u| u.spd as f32).collect();
-    if speeds.is_empty() { 0.0 } else { speeds.iter().sum::<f32>() / speeds.len() as f32 }
+    let speeds: Vec<f32> = units
+        .iter()
+        .filter(|u| u.side == side && u.is_alive())
+        .map(|u| u.spd as f32)
+        .collect();
+    if speeds.is_empty() {
+        0.0
+    } else {
+        speeds.iter().sum::<f32>() / speeds.len() as f32
+    }
 }
 
 fn execute_basic_attack(
-    attacker_id: u32, target_id: u32,
+    attacker_id: u32,
+    target_id: u32,
     units: &mut Query<&mut BattleUnit>,
     rng: &mut ResMut<BattleRng>,
     damage_events: &mut EventWriter<DamageEvent>,
@@ -334,30 +486,71 @@ fn execute_basic_attack(
     battle_state: &ResMut<BattleStateRes>,
 ) {
     let attacker_data = units.iter().find(|u| u.id == attacker_id).cloned();
-    let attacker = match attacker_data { Some(a) => a, None => return };
+    let attacker = match attacker_data {
+        Some(a) => a,
+        None => return,
+    };
 
-    let target_defending = battle_state.actions.iter().any(|(id, a)| *id == target_id && matches!(a, BattleAction::Defend));
+    let target_defending = battle_state
+        .actions
+        .iter()
+        .any(|(id, a)| *id == target_id && matches!(a, BattleAction::Defend));
 
     let basic_attack = AbilityDef {
-        id: "basic_attack".into(), name: "Attack".into(),
-        ability_type: AbilityType::Physical, element: None, mana_cost: 0,
-        base_power: 0, targets: TargetKind::SingleEnemy, unlock_level: 1,
-        description: String::new(), buff_effect: None, duration: None,
-        status_effect: None, chain_damage: false, ignore_defense_percent: 0.0,
-        damage_reduction_percent: 0.0, shield_charges: None,
-        ai_hints: AiHints { priority: 1.0, target: AiTargetPref::Weakest, avoid_overkill: false, opener: false },
+        id: "basic_attack".into(),
+        name: "Attack".into(),
+        ability_type: AbilityType::Physical,
+        element: None,
+        mana_cost: 0,
+        base_power: 0,
+        targets: TargetKind::SingleEnemy,
+        unlock_level: 1,
+        description: String::new(),
+        buff_effect: None,
+        duration: None,
+        status_effect: None,
+        chain_damage: false,
+        ignore_defense_percent: 0.0,
+        damage_reduction_percent: 0.0,
+        shield_charges: None,
+        ai_hints: AiHints {
+            priority: 1.0,
+            target: AiTargetPref::Weakest,
+            avoid_overkill: false,
+            opener: false,
+        },
     };
 
     if let Some(mut target) = units.iter_mut().find(|u| u.id == target_id) {
-        let dmg = damage::calculate_physical_damage(&attacker, &target, &basic_attack, target_defending, &mut rng.0);
+        let dmg = damage::calculate_physical_damage(
+            &attacker,
+            &target,
+            &basic_attack,
+            target_defending,
+            &mut rng.0,
+        );
         let result = damage::apply_damage_with_shields(&mut target, dmg);
-        damage_events.send(DamageEvent { attacker_id, target_id, damage: result.actual_damage, element: Some(attacker.element), was_blocked: result.was_blocked });
-        if target.is_ko() { ko_events.send(UnitKoEvent { unit_id: target.id, unit_name: target.name.clone(), side: target.side }); }
+        damage_events.send(DamageEvent {
+            attacker_id,
+            target_id,
+            damage: result.actual_damage,
+            element: Some(attacker.element),
+            was_blocked: result.was_blocked,
+        });
+        if target.is_ko() {
+            ko_events.send(UnitKoEvent {
+                unit_id: target.id,
+                unit_name: target.name.clone(),
+                side: target.side,
+            });
+        }
     }
 }
 
 fn execute_ability(
-    caster_id: u32, ability_id: &str, target_id: u32,
+    caster_id: u32,
+    ability_id: &str,
+    target_id: u32,
     units: &mut Query<&mut BattleUnit>,
     rng: &mut ResMut<BattleRng>,
     damage_events: &mut EventWriter<DamageEvent>,
@@ -367,9 +560,15 @@ fn execute_ability(
     game_data: &Res<GameData>,
 ) {
     let caster_data = units.iter().find(|u| u.id == caster_id).cloned();
-    let caster = match caster_data { Some(c) => c, None => return };
+    let caster = match caster_data {
+        Some(c) => c,
+        None => return,
+    };
 
-    let ability = match game_data.abilities.get(ability_id) { Some(a) => a.clone(), None => return };
+    let ability = match game_data.abilities.get(ability_id) {
+        Some(a) => a.clone(),
+        None => return,
+    };
 
     // Deduct PP
     if let Some(mut caster_unit) = units.iter_mut().find(|u| u.id == caster_id) {
@@ -384,16 +583,30 @@ fn execute_ability(
                     if let Some(mut target) = units.iter_mut().find(|u| u.id == target_id) {
                         let was_ko = target.is_ko();
                         damage::apply_healing(&mut target, heal_amount, false);
-                        heal_events.send(HealEvent { source_id: caster_id, target_id, amount: heal_amount, revived: was_ko && target.is_alive() });
+                        heal_events.send(HealEvent {
+                            source_id: caster_id,
+                            target_id,
+                            amount: heal_amount,
+                            revived: was_ko && target.is_alive(),
+                        });
                     }
                 }
                 TargetKind::AllAllies => {
-                    let ally_ids: Vec<u32> = units.iter().filter(|u| u.side == caster.side).map(|u| u.id).collect();
+                    let ally_ids: Vec<u32> = units
+                        .iter()
+                        .filter(|u| u.side == caster.side)
+                        .map(|u| u.id)
+                        .collect();
                     for aid in ally_ids {
                         if let Some(mut ally) = units.iter_mut().find(|u| u.id == aid) {
                             let was_ko = ally.is_ko();
                             damage::apply_healing(&mut ally, heal_amount, false);
-                            heal_events.send(HealEvent { source_id: caster_id, target_id: aid, amount: heal_amount, revived: was_ko && ally.is_alive() });
+                            heal_events.send(HealEvent {
+                                source_id: caster_id,
+                                target_id: aid,
+                                amount: heal_amount,
+                                revived: was_ko && ally.is_alive(),
+                            });
                         }
                     }
                 }
@@ -401,45 +614,95 @@ fn execute_ability(
             }
         }
         AbilityType::Physical | AbilityType::Psynergy | AbilityType::Debuff => {
-            let target_defending = battle_state.actions.iter().any(|(id, a)| *id == target_id && matches!(a, BattleAction::Defend));
+            let target_defending = battle_state
+                .actions
+                .iter()
+                .any(|(id, a)| *id == target_id && matches!(a, BattleAction::Defend));
 
             match ability.targets {
                 TargetKind::SingleEnemy | TargetKind::SingleAlly | TargetKind::OneSelf => {
                     if let Some(mut target) = units.iter_mut().find(|u| u.id == target_id) {
-                        let dmg = damage::calculate_damage(&caster, &target, &ability, target_defending, &mut rng.0);
+                        let dmg = damage::calculate_damage(
+                            &caster,
+                            &target,
+                            &ability,
+                            target_defending,
+                            &mut rng.0,
+                        );
                         let result = damage::apply_damage_with_shields(&mut target, dmg);
-                        damage_events.send(DamageEvent { attacker_id: caster_id, target_id, damage: result.actual_damage, element: ability.element, was_blocked: result.was_blocked });
+                        damage_events.send(DamageEvent {
+                            attacker_id: caster_id,
+                            target_id,
+                            damage: result.actual_damage,
+                            element: ability.element,
+                            was_blocked: result.was_blocked,
+                        });
                         // Apply status from ability
                         if let Some(ref se) = ability.status_effect {
                             if let Some(battle_status) = convert_status_effect(se) {
                                 status::apply_status_to_unit(&mut target, battle_status);
                             }
                         }
-                        if target.is_ko() { ko_events.send(UnitKoEvent { unit_id: target.id, unit_name: target.name.clone(), side: target.side }); }
+                        if target.is_ko() {
+                            ko_events.send(UnitKoEvent {
+                                unit_id: target.id,
+                                unit_name: target.name.clone(),
+                                side: target.side,
+                            });
+                        }
                     }
                 }
                 TargetKind::AllEnemies => {
-                    let enemy_side = if caster.side == UnitSide::Player { UnitSide::Enemy } else { UnitSide::Player };
-                    let eids: Vec<u32> = units.iter().filter(|u| u.side == enemy_side && u.is_alive()).map(|u| u.id).collect();
+                    let enemy_side = if caster.side == UnitSide::Player {
+                        UnitSide::Enemy
+                    } else {
+                        UnitSide::Player
+                    };
+                    let eids: Vec<u32> = units
+                        .iter()
+                        .filter(|u| u.side == enemy_side && u.is_alive())
+                        .map(|u| u.id)
+                        .collect();
                     for eid in eids {
-                        let defending = battle_state.actions.iter().any(|(id, a)| *id == eid && matches!(a, BattleAction::Defend));
+                        let defending = battle_state
+                            .actions
+                            .iter()
+                            .any(|(id, a)| *id == eid && matches!(a, BattleAction::Defend));
                         if let Some(mut target) = units.iter_mut().find(|u| u.id == eid) {
-                            let dmg = damage::calculate_damage(&caster, &target, &ability, defending, &mut rng.0);
+                            let dmg = damage::calculate_damage(
+                                &caster, &target, &ability, defending, &mut rng.0,
+                            );
                             let result = damage::apply_damage_with_shields(&mut target, dmg);
-                            damage_events.send(DamageEvent { attacker_id: caster_id, target_id: eid, damage: result.actual_damage, element: ability.element, was_blocked: result.was_blocked });
+                            damage_events.send(DamageEvent {
+                                attacker_id: caster_id,
+                                target_id: eid,
+                                damage: result.actual_damage,
+                                element: ability.element,
+                                was_blocked: result.was_blocked,
+                            });
                             if let Some(ref se) = ability.status_effect {
                                 if let Some(battle_status) = convert_status_effect(se) {
                                     status::apply_status_to_unit(&mut target, battle_status);
                                 }
                             }
-                            if target.is_ko() { ko_events.send(UnitKoEvent { unit_id: target.id, unit_name: target.name.clone(), side: target.side }); }
+                            if target.is_ko() {
+                                ko_events.send(UnitKoEvent {
+                                    unit_id: target.id,
+                                    unit_name: target.name.clone(),
+                                    side: target.side,
+                                });
+                            }
                         }
                     }
                 }
                 TargetKind::AllAllies => {
                     // Buff/debuff all allies via status effect
                     if let Some(ref se) = ability.status_effect {
-                        let aids: Vec<u32> = units.iter().filter(|u| u.side == caster.side && u.is_alive()).map(|u| u.id).collect();
+                        let aids: Vec<u32> = units
+                            .iter()
+                            .filter(|u| u.side == caster.side && u.is_alive())
+                            .map(|u| u.id)
+                            .collect();
                         for aid in aids {
                             if let Some(mut ally) = units.iter_mut().find(|u| u.id == aid) {
                                 if let Some(battle_status) = convert_status_effect(se) {
@@ -459,15 +722,23 @@ fn execute_ability(
                 match ability.targets {
                     TargetKind::OneSelf | TargetKind::SingleAlly => {
                         if let Some(mut target) = units.iter_mut().find(|u| u.id == target_id) {
-                            for s in statuses { status::apply_status_to_unit(&mut target, s); }
+                            for s in statuses {
+                                status::apply_status_to_unit(&mut target, s);
+                            }
                         }
                     }
                     TargetKind::AllAllies => {
-                        let aids: Vec<u32> = units.iter().filter(|u| u.side == caster.side && u.is_alive()).map(|u| u.id).collect();
+                        let aids: Vec<u32> = units
+                            .iter()
+                            .filter(|u| u.side == caster.side && u.is_alive())
+                            .map(|u| u.id)
+                            .collect();
                         for aid in aids {
                             if let Some(mut ally) = units.iter_mut().find(|u| u.id == aid) {
                                 let sts = buff_to_status_effects(buff, duration);
-                                for s in sts { status::apply_status_to_unit(&mut ally, s); }
+                                for s in sts {
+                                    status::apply_status_to_unit(&mut ally, s);
+                                }
                             }
                         }
                     }
@@ -479,7 +750,9 @@ fn execute_ability(
 }
 
 /// Convert a data::abilities::StatusEffectDef into a BattleStatusEffect.
-fn convert_status_effect(se: &crate::data::abilities::StatusEffectDef) -> Option<BattleStatusEffect> {
+fn convert_status_effect(
+    se: &crate::data::abilities::StatusEffectDef,
+) -> Option<BattleStatusEffect> {
     let dur = se.duration as i32;
     match se.effect_type.as_str() {
         "poison" => Some(BattleStatusEffect::Poison { duration: dur }),
@@ -493,35 +766,74 @@ fn convert_status_effect(se: &crate::data::abilities::StatusEffectDef) -> Option
 }
 
 /// Convert a BuffEffect into one or more BattleStatusEffect::Buff entries.
-fn buff_to_status_effects(buff: &crate::data::abilities::BuffEffect, duration: i32) -> Vec<BattleStatusEffect> {
+fn buff_to_status_effects(
+    buff: &crate::data::abilities::BuffEffect,
+    duration: i32,
+) -> Vec<BattleStatusEffect> {
     let mut effects = Vec::new();
     if buff.atk != 0 {
-        let (kind, modifier) = if buff.atk > 0 { (true, buff.atk) } else { (false, buff.atk) };
-        if kind {
-            effects.push(BattleStatusEffect::Buff { stat: StatKind::Atk, modifier, duration });
+        let (kind, modifier) = if buff.atk > 0 {
+            (true, buff.atk)
         } else {
-            effects.push(BattleStatusEffect::Debuff { stat: StatKind::Atk, modifier, duration });
+            (false, buff.atk)
+        };
+        if kind {
+            effects.push(BattleStatusEffect::Buff {
+                stat: StatKind::Atk,
+                modifier,
+                duration,
+            });
+        } else {
+            effects.push(BattleStatusEffect::Debuff {
+                stat: StatKind::Atk,
+                modifier,
+                duration,
+            });
         }
     }
     if buff.def != 0 {
         if buff.def > 0 {
-            effects.push(BattleStatusEffect::Buff { stat: StatKind::Def, modifier: buff.def, duration });
+            effects.push(BattleStatusEffect::Buff {
+                stat: StatKind::Def,
+                modifier: buff.def,
+                duration,
+            });
         } else {
-            effects.push(BattleStatusEffect::Debuff { stat: StatKind::Def, modifier: buff.def, duration });
+            effects.push(BattleStatusEffect::Debuff {
+                stat: StatKind::Def,
+                modifier: buff.def,
+                duration,
+            });
         }
     }
     if buff.mag != 0 {
         if buff.mag > 0 {
-            effects.push(BattleStatusEffect::Buff { stat: StatKind::Mag, modifier: buff.mag, duration });
+            effects.push(BattleStatusEffect::Buff {
+                stat: StatKind::Mag,
+                modifier: buff.mag,
+                duration,
+            });
         } else {
-            effects.push(BattleStatusEffect::Debuff { stat: StatKind::Mag, modifier: buff.mag, duration });
+            effects.push(BattleStatusEffect::Debuff {
+                stat: StatKind::Mag,
+                modifier: buff.mag,
+                duration,
+            });
         }
     }
     if buff.spd != 0 {
         if buff.spd > 0 {
-            effects.push(BattleStatusEffect::Buff { stat: StatKind::Spd, modifier: buff.spd, duration });
+            effects.push(BattleStatusEffect::Buff {
+                stat: StatKind::Spd,
+                modifier: buff.spd,
+                duration,
+            });
         } else {
-            effects.push(BattleStatusEffect::Debuff { stat: StatKind::Spd, modifier: buff.spd, duration });
+            effects.push(BattleStatusEffect::Debuff {
+                stat: StatKind::Spd,
+                modifier: buff.spd,
+                duration,
+            });
         }
     }
     effects
@@ -536,36 +848,57 @@ pub fn victory_system(
     mut end_events: EventWriter<EndBattleEvent>,
     game_data: Res<GameData>,
 ) {
-    let enemy_xp_gold: Vec<(u32, u32)> = units.iter()
+    let enemy_xp_gold: Vec<(u32, u32)> = units
+        .iter()
         .filter(|u| u.side == UnitSide::Enemy)
         .filter_map(|u| {
             // Look up base_xp and base_gold from enemy definitions by name
-            game_data.enemies.values()
+            game_data
+                .enemies
+                .values()
                 .find(|e| e.name == u.name)
                 .map(|e| (e.base_xp, e.base_gold))
         })
         .collect();
 
-    let mut party: Vec<BattleUnit> = units.iter().filter(|u| u.side == UnitSide::Player).cloned().collect();
+    let mut party: Vec<BattleUnit> = units
+        .iter()
+        .filter(|u| u.side == UnitSide::Player)
+        .cloned()
+        .collect();
     let party_size = party.len() as u32;
     let survivor_count = party.iter().filter(|u| u.is_alive()).count() as u32;
 
-    let battle_rewards = rewards::calculate_battle_rewards(&enemy_xp_gold, party_size, survivor_count);
+    let battle_rewards =
+        rewards::calculate_battle_rewards(&enemy_xp_gold, party_size, survivor_count);
     let level_ups = rewards::distribute_rewards(&mut party, &battle_rewards);
 
     for updated in &party {
         if let Some(mut unit) = units.iter_mut().find(|u| u.id == updated.id) {
-            unit.hp = updated.hp; unit.max_hp = updated.max_hp;
-            unit.pp = updated.pp; unit.max_pp = updated.max_pp;
-            unit.atk = updated.atk; unit.def = updated.def;
-            unit.mag = updated.mag; unit.spd = updated.spd;
-            unit.level = updated.level; unit.xp = updated.xp;
+            unit.hp = updated.hp;
+            unit.max_hp = updated.max_hp;
+            unit.pp = updated.pp;
+            unit.max_pp = updated.max_pp;
+            unit.atk = updated.atk;
+            unit.def = updated.def;
+            unit.mag = updated.mag;
+            unit.spd = updated.spd;
+            unit.level = updated.level;
+            unit.xp = updated.xp;
         }
     }
 
-    end_events.send(EndBattleEvent { victory: true, rewards: Some(battle_rewards), level_ups });
+    end_events.send(EndBattleEvent {
+        victory: true,
+        rewards: Some(battle_rewards),
+        level_ups,
+    });
 }
 
 pub fn defeat_system(mut end_events: EventWriter<EndBattleEvent>) {
-    end_events.send(EndBattleEvent { victory: false, rewards: None, level_ups: vec![] });
+    end_events.send(EndBattleEvent {
+        victory: false,
+        rewards: None,
+        level_ups: vec![],
+    });
 }

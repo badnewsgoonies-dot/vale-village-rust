@@ -118,8 +118,12 @@ pub fn build_item_registry() -> HashMap<String, ItemDefinition> {
             category: ItemCategory::Consumable,
             cost: 50,
             effect: ItemEffect {
-                hp_restore: 120, pp_restore: 0, removes_status: vec![],
-                revive: false, damage_element: None, damage_amount: 0,
+                hp_restore: 120,
+                pp_restore: 0,
+                removes_status: vec![],
+                revive: false,
+                damage_element: None,
+                damage_amount: 0,
             },
         },
         ItemDefinition {
@@ -129,8 +133,12 @@ pub fn build_item_registry() -> HashMap<String, ItemDefinition> {
             category: ItemCategory::Consumable,
             cost: 120,
             effect: ItemEffect {
-                hp_restore: 80, pp_restore: 10, removes_status: vec![],
-                revive: false, damage_element: None, damage_amount: 0,
+                hp_restore: 80,
+                pp_restore: 10,
+                removes_status: vec![],
+                revive: false,
+                damage_element: None,
+                damage_amount: 0,
             },
         },
         ItemDefinition {
@@ -140,8 +148,12 @@ pub fn build_item_registry() -> HashMap<String, ItemDefinition> {
             category: ItemCategory::Consumable,
             cost: 420,
             effect: ItemEffect {
-                hp_restore: 250, pp_restore: 0, removes_status: vec![],
-                revive: false, damage_element: None, damage_amount: 0,
+                hp_restore: 250,
+                pp_restore: 0,
+                removes_status: vec![],
+                revive: false,
+                damage_element: None,
+                damage_amount: 0,
             },
         },
         ItemDefinition {
@@ -151,8 +163,12 @@ pub fn build_item_registry() -> HashMap<String, ItemDefinition> {
             category: ItemCategory::Consumable,
             cost: 90,
             effect: ItemEffect {
-                hp_restore: 0, pp_restore: 0, removes_status: vec![],
-                revive: false, damage_element: Some(Element::Mercury), damage_amount: 0,
+                hp_restore: 0,
+                pp_restore: 0,
+                removes_status: vec![],
+                revive: false,
+                damage_element: Some(Element::Mercury),
+                damage_amount: 0,
             },
         },
         ItemDefinition {
@@ -162,8 +178,12 @@ pub fn build_item_registry() -> HashMap<String, ItemDefinition> {
             category: ItemCategory::Consumable,
             cost: 140,
             effect: ItemEffect {
-                hp_restore: 0, pp_restore: 0, removes_status: vec![],
-                revive: false, damage_element: None, damage_amount: 0,
+                hp_restore: 0,
+                pp_restore: 0,
+                removes_status: vec![],
+                revive: false,
+                damage_element: None,
+                damage_amount: 0,
             },
         },
         ItemDefinition {
@@ -173,8 +193,12 @@ pub fn build_item_registry() -> HashMap<String, ItemDefinition> {
             category: ItemCategory::Consumable,
             cost: 200,
             effect: ItemEffect {
-                hp_restore: 0, pp_restore: 0, removes_status: vec![],
-                revive: false, damage_element: Some(Element::Jupiter), damage_amount: 120,
+                hp_restore: 0,
+                pp_restore: 0,
+                removes_status: vec![],
+                revive: false,
+                damage_element: Some(Element::Jupiter),
+                damage_amount: 120,
             },
         },
         ItemDefinition {
@@ -184,8 +208,12 @@ pub fn build_item_registry() -> HashMap<String, ItemDefinition> {
             category: ItemCategory::Consumable,
             cost: 260,
             effect: ItemEffect {
-                hp_restore: 0, pp_restore: 15, removes_status: vec![],
-                revive: false, damage_element: None, damage_amount: 0,
+                hp_restore: 0,
+                pp_restore: 15,
+                removes_status: vec![],
+                revive: false,
+                damage_element: None,
+                damage_amount: 0,
             },
         },
         ItemDefinition {
@@ -195,8 +223,12 @@ pub fn build_item_registry() -> HashMap<String, ItemDefinition> {
             category: ItemCategory::Consumable,
             cost: 2000,
             effect: ItemEffect {
-                hp_restore: 9999, pp_restore: 9999, removes_status: vec![],
-                revive: false, damage_element: None, damage_amount: 0,
+                hp_restore: 9999,
+                pp_restore: 9999,
+                removes_status: vec![],
+                revive: false,
+                damage_element: None,
+                damage_amount: 0,
             },
         },
         ItemDefinition {
@@ -206,9 +238,12 @@ pub fn build_item_registry() -> HashMap<String, ItemDefinition> {
             category: ItemCategory::Consumable,
             cost: 35,
             effect: ItemEffect {
-                hp_restore: 0, pp_restore: 0,
+                hp_restore: 0,
+                pp_restore: 0,
                 removes_status: vec!["poison".into()],
-                revive: false, damage_element: None, damage_amount: 0,
+                revive: false,
+                damage_element: None,
+                damage_amount: 0,
             },
         },
         ItemDefinition {
@@ -218,8 +253,12 @@ pub fn build_item_registry() -> HashMap<String, ItemDefinition> {
             category: ItemCategory::Consumable,
             cost: 500,
             effect: ItemEffect {
-                hp_restore: 100, pp_restore: 0, removes_status: vec![],
-                revive: true, damage_element: None, damage_amount: 0,
+                hp_restore: 100,
+                pp_restore: 0,
+                removes_status: vec![],
+                revive: true,
+                damage_element: None,
+                damage_amount: 0,
             },
         },
     ];
@@ -238,195 +277,338 @@ pub fn build_equipment_registry() -> HashMap<String, EquipmentDefinition> {
     let equipment = vec![
         // ===== SWORDS (Venus + Jupiter) =====
         EquipmentDefinition {
-            id: "wooden-sword".into(), name: "Wooden Sword".into(),
-            slot: EquipmentSlot::Weapon, tier: EquipmentTier::Basic, cost: 50,
-            stat_bonus: StatBonus { atk: 5, ..Default::default() },
+            id: "wooden-sword".into(),
+            name: "Wooden Sword".into(),
+            slot: EquipmentSlot::Weapon,
+            tier: EquipmentTier::Basic,
+            cost: 50,
+            stat_bonus: StatBonus {
+                atk: 5,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Venus, Element::Jupiter],
             unlocks_ability: None,
             description: "A basic wooden training sword.".into(),
         },
         EquipmentDefinition {
-            id: "bronze-sword".into(), name: "Bronze Sword".into(),
-            slot: EquipmentSlot::Weapon, tier: EquipmentTier::Bronze, cost: 120,
-            stat_bonus: StatBonus { atk: 9, ..Default::default() },
+            id: "bronze-sword".into(),
+            name: "Bronze Sword".into(),
+            slot: EquipmentSlot::Weapon,
+            tier: EquipmentTier::Bronze,
+            cost: 120,
+            stat_bonus: StatBonus {
+                atk: 9,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Venus],
             unlocks_ability: None,
             description: "A sturdy bronze sword.".into(),
         },
         EquipmentDefinition {
-            id: "iron-sword".into(), name: "Iron Sword".into(),
-            slot: EquipmentSlot::Weapon, tier: EquipmentTier::Iron, cost: 200,
-            stat_bonus: StatBonus { atk: 14, ..Default::default() },
+            id: "iron-sword".into(),
+            name: "Iron Sword".into(),
+            slot: EquipmentSlot::Weapon,
+            tier: EquipmentTier::Iron,
+            cost: 200,
+            stat_bonus: StatBonus {
+                atk: 14,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Venus],
             unlocks_ability: None,
             description: "A reliable iron sword.".into(),
         },
         EquipmentDefinition {
-            id: "steel-sword".into(), name: "Steel Sword".into(),
-            slot: EquipmentSlot::Weapon, tier: EquipmentTier::Steel, cost: 500,
-            stat_bonus: StatBonus { atk: 22, ..Default::default() },
+            id: "steel-sword".into(),
+            name: "Steel Sword".into(),
+            slot: EquipmentSlot::Weapon,
+            tier: EquipmentTier::Steel,
+            cost: 500,
+            stat_bonus: StatBonus {
+                atk: 22,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Venus],
             unlocks_ability: None,
             description: "A well-forged steel sword.".into(),
         },
         EquipmentDefinition {
-            id: "silver-blade".into(), name: "Silver Blade".into(),
-            slot: EquipmentSlot::Weapon, tier: EquipmentTier::Silver, cost: 1200,
-            stat_bonus: StatBonus { atk: 32, ..Default::default() },
+            id: "silver-blade".into(),
+            name: "Silver Blade".into(),
+            slot: EquipmentSlot::Weapon,
+            tier: EquipmentTier::Silver,
+            cost: 1200,
+            stat_bonus: StatBonus {
+                atk: 32,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Venus],
             unlocks_ability: None,
             description: "A gleaming silver blade.".into(),
         },
         EquipmentDefinition {
-            id: "mythril-blade".into(), name: "Mythril Blade".into(),
-            slot: EquipmentSlot::Weapon, tier: EquipmentTier::Mythril, cost: 3000,
-            stat_bonus: StatBonus { atk: 45, ..Default::default() },
+            id: "mythril-blade".into(),
+            name: "Mythril Blade".into(),
+            slot: EquipmentSlot::Weapon,
+            tier: EquipmentTier::Mythril,
+            cost: 3000,
+            stat_bonus: StatBonus {
+                atk: 45,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Venus],
             unlocks_ability: None,
             description: "A blade forged from mythril ore.".into(),
         },
         EquipmentDefinition {
-            id: "gaia-blade".into(), name: "Gaia Blade".into(),
-            slot: EquipmentSlot::Weapon, tier: EquipmentTier::Legendary, cost: 7500,
-            stat_bonus: StatBonus { atk: 58, ..Default::default() },
+            id: "gaia-blade".into(),
+            name: "Gaia Blade".into(),
+            slot: EquipmentSlot::Weapon,
+            tier: EquipmentTier::Legendary,
+            cost: 7500,
+            stat_bonus: StatBonus {
+                atk: 58,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Venus],
             unlocks_ability: None,
             description: "A legendary blade imbued with the power of Gaia.".into(),
         },
         EquipmentDefinition {
-            id: "sol-blade".into(), name: "Sol Blade".into(),
-            slot: EquipmentSlot::Weapon, tier: EquipmentTier::Artifact, cost: 15000,
-            stat_bonus: StatBonus { atk: 72, ..Default::default() },
+            id: "sol-blade".into(),
+            name: "Sol Blade".into(),
+            slot: EquipmentSlot::Weapon,
+            tier: EquipmentTier::Artifact,
+            cost: 15000,
+            stat_bonus: StatBonus {
+                atk: 72,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Venus],
             unlocks_ability: None,
             description: "The ultimate artifact blade of radiant power.".into(),
         },
-
         // ===== AXES (Mars) =====
         EquipmentDefinition {
-            id: "wooden-axe".into(), name: "Wooden Axe".into(),
-            slot: EquipmentSlot::Weapon, tier: EquipmentTier::Basic, cost: 60,
-            stat_bonus: StatBonus { atk: 7, spd: -1, ..Default::default() },
+            id: "wooden-axe".into(),
+            name: "Wooden Axe".into(),
+            slot: EquipmentSlot::Weapon,
+            tier: EquipmentTier::Basic,
+            cost: 60,
+            stat_bonus: StatBonus {
+                atk: 7,
+                spd: -1,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Mars],
             unlocks_ability: None,
             description: "A basic wooden axe.".into(),
         },
         EquipmentDefinition {
-            id: "battle-axe".into(), name: "Battle Axe".into(),
-            slot: EquipmentSlot::Weapon, tier: EquipmentTier::Iron, cost: 280,
-            stat_bonus: StatBonus { atk: 18, spd: -2, ..Default::default() },
+            id: "battle-axe".into(),
+            name: "Battle Axe".into(),
+            slot: EquipmentSlot::Weapon,
+            tier: EquipmentTier::Iron,
+            cost: 280,
+            stat_bonus: StatBonus {
+                atk: 18,
+                spd: -2,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Mars],
             unlocks_ability: None,
             description: "A heavy iron battle axe.".into(),
         },
         EquipmentDefinition {
-            id: "great-axe".into(), name: "Great Axe".into(),
-            slot: EquipmentSlot::Weapon, tier: EquipmentTier::Steel, cost: 800,
-            stat_bonus: StatBonus { atk: 30, spd: -3, ..Default::default() },
+            id: "great-axe".into(),
+            name: "Great Axe".into(),
+            slot: EquipmentSlot::Weapon,
+            tier: EquipmentTier::Steel,
+            cost: 800,
+            stat_bonus: StatBonus {
+                atk: 30,
+                spd: -3,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Mars],
             unlocks_ability: None,
             description: "A massive steel great axe.".into(),
         },
         EquipmentDefinition {
-            id: "titans-axe".into(), name: "Titan's Axe".into(),
-            slot: EquipmentSlot::Weapon, tier: EquipmentTier::Legendary, cost: 9000,
-            stat_bonus: StatBonus { atk: 65, def: 10, spd: -2, ..Default::default() },
+            id: "titans-axe".into(),
+            name: "Titan's Axe".into(),
+            slot: EquipmentSlot::Weapon,
+            tier: EquipmentTier::Legendary,
+            cost: 9000,
+            stat_bonus: StatBonus {
+                atk: 65,
+                def: 10,
+                spd: -2,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Mars],
             unlocks_ability: None,
             description: "A legendary axe wielded by ancient titans.".into(),
         },
-
         // ===== STAVES (Mercury) =====
         EquipmentDefinition {
-            id: "wooden-staff".into(), name: "Wooden Staff".into(),
-            slot: EquipmentSlot::Weapon, tier: EquipmentTier::Basic, cost: 45,
-            stat_bonus: StatBonus { mag: 5, ..Default::default() },
+            id: "wooden-staff".into(),
+            name: "Wooden Staff".into(),
+            slot: EquipmentSlot::Weapon,
+            tier: EquipmentTier::Basic,
+            cost: 45,
+            stat_bonus: StatBonus {
+                mag: 5,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Mercury],
             unlocks_ability: None,
             description: "A basic wooden staff.".into(),
         },
         EquipmentDefinition {
-            id: "arcane-rod".into(), name: "Arcane Rod".into(),
-            slot: EquipmentSlot::Weapon, tier: EquipmentTier::Iron, cost: 180,
-            stat_bonus: StatBonus { mag: 12, pp: 5, ..Default::default() },
+            id: "arcane-rod".into(),
+            name: "Arcane Rod".into(),
+            slot: EquipmentSlot::Weapon,
+            tier: EquipmentTier::Iron,
+            cost: 180,
+            stat_bonus: StatBonus {
+                mag: 12,
+                pp: 5,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Mercury],
             unlocks_ability: None,
             description: "A rod infused with arcane energy.".into(),
         },
         EquipmentDefinition {
-            id: "crystal-staff".into(), name: "Crystal Staff".into(),
-            slot: EquipmentSlot::Weapon, tier: EquipmentTier::Silver, cost: 1400,
-            stat_bonus: StatBonus { mag: 28, pp: 10, ..Default::default() },
+            id: "crystal-staff".into(),
+            name: "Crystal Staff".into(),
+            slot: EquipmentSlot::Weapon,
+            tier: EquipmentTier::Silver,
+            cost: 1400,
+            stat_bonus: StatBonus {
+                mag: 28,
+                pp: 10,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Mercury],
             unlocks_ability: None,
             description: "A staff topped with a gleaming crystal.".into(),
         },
-
         // ===== BOWS (Jupiter) =====
         EquipmentDefinition {
-            id: "short-bow".into(), name: "Short Bow".into(),
-            slot: EquipmentSlot::Weapon, tier: EquipmentTier::Basic, cost: 55,
-            stat_bonus: StatBonus { atk: 4, spd: 2, ..Default::default() },
+            id: "short-bow".into(),
+            name: "Short Bow".into(),
+            slot: EquipmentSlot::Weapon,
+            tier: EquipmentTier::Basic,
+            cost: 55,
+            stat_bonus: StatBonus {
+                atk: 4,
+                spd: 2,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Jupiter],
             unlocks_ability: None,
             description: "A basic short bow.".into(),
         },
         EquipmentDefinition {
-            id: "storm-bow".into(), name: "Storm Bow".into(),
-            slot: EquipmentSlot::Weapon, tier: EquipmentTier::Steel, cost: 600,
-            stat_bonus: StatBonus { atk: 20, spd: 4, ..Default::default() },
+            id: "storm-bow".into(),
+            name: "Storm Bow".into(),
+            slot: EquipmentSlot::Weapon,
+            tier: EquipmentTier::Steel,
+            cost: 600,
+            stat_bonus: StatBonus {
+                atk: 20,
+                spd: 4,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Jupiter],
             unlocks_ability: None,
             description: "A bow crackling with storm energy.".into(),
         },
-
         // ===== ARMOR =====
         EquipmentDefinition {
-            id: "leather-armor".into(), name: "Leather Armor".into(),
-            slot: EquipmentSlot::Armor, tier: EquipmentTier::Basic, cost: 40,
-            stat_bonus: StatBonus { def: 4, ..Default::default() },
+            id: "leather-armor".into(),
+            name: "Leather Armor".into(),
+            slot: EquipmentSlot::Armor,
+            tier: EquipmentTier::Basic,
+            cost: 40,
+            stat_bonus: StatBonus {
+                def: 4,
+                ..Default::default()
+            },
             allowed_elements: vec![],
             unlocks_ability: None,
             description: "Basic leather armor.".into(),
         },
         EquipmentDefinition {
-            id: "iron-armor".into(), name: "Iron Armor".into(),
-            slot: EquipmentSlot::Armor, tier: EquipmentTier::Iron, cost: 250,
-            stat_bonus: StatBonus { def: 12, spd: -1, ..Default::default() },
+            id: "iron-armor".into(),
+            name: "Iron Armor".into(),
+            slot: EquipmentSlot::Armor,
+            tier: EquipmentTier::Iron,
+            cost: 250,
+            stat_bonus: StatBonus {
+                def: 12,
+                spd: -1,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Venus, Element::Mars],
             unlocks_ability: None,
             description: "Heavy iron plate armor.".into(),
         },
         EquipmentDefinition {
-            id: "mythril-robe".into(), name: "Mythril Robe".into(),
-            slot: EquipmentSlot::Armor, tier: EquipmentTier::Mythril, cost: 2500,
-            stat_bonus: StatBonus { def: 22, mag: 8, ..Default::default() },
+            id: "mythril-robe".into(),
+            name: "Mythril Robe".into(),
+            slot: EquipmentSlot::Armor,
+            tier: EquipmentTier::Mythril,
+            cost: 2500,
+            stat_bonus: StatBonus {
+                def: 22,
+                mag: 8,
+                ..Default::default()
+            },
             allowed_elements: vec![Element::Mercury, Element::Jupiter],
             unlocks_ability: None,
             description: "A lightweight robe woven with mythril threads.".into(),
         },
-
         // ===== ACCESSORIES =====
         EquipmentDefinition {
-            id: "lucky-charm".into(), name: "Lucky Charm".into(),
-            slot: EquipmentSlot::Accessory, tier: EquipmentTier::Basic, cost: 100,
-            stat_bonus: StatBonus { ..Default::default() },
+            id: "lucky-charm".into(),
+            name: "Lucky Charm".into(),
+            slot: EquipmentSlot::Accessory,
+            tier: EquipmentTier::Basic,
+            cost: 100,
+            stat_bonus: StatBonus {
+                ..Default::default()
+            },
             allowed_elements: vec![],
             unlocks_ability: None,
             description: "A small charm that brings good fortune.".into(),
         },
         EquipmentDefinition {
-            id: "speed-ring".into(), name: "Speed Ring".into(),
-            slot: EquipmentSlot::Accessory, tier: EquipmentTier::Silver, cost: 800,
-            stat_bonus: StatBonus { spd: 8, ..Default::default() },
+            id: "speed-ring".into(),
+            name: "Speed Ring".into(),
+            slot: EquipmentSlot::Accessory,
+            tier: EquipmentTier::Silver,
+            cost: 800,
+            stat_bonus: StatBonus {
+                spd: 8,
+                ..Default::default()
+            },
             allowed_elements: vec![],
             unlocks_ability: None,
             description: "A ring that enhances the wearer's speed.".into(),
         },
         EquipmentDefinition {
-            id: "power-amulet".into(), name: "Power Amulet".into(),
-            slot: EquipmentSlot::Accessory, tier: EquipmentTier::Silver, cost: 900,
-            stat_bonus: StatBonus { atk: 8, ..Default::default() },
+            id: "power-amulet".into(),
+            name: "Power Amulet".into(),
+            slot: EquipmentSlot::Accessory,
+            tier: EquipmentTier::Silver,
+            cost: 900,
+            stat_bonus: StatBonus {
+                atk: 8,
+                ..Default::default()
+            },
             allowed_elements: vec![],
             unlocks_ability: None,
             description: "An amulet that amplifies physical strength.".into(),

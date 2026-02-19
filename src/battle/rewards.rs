@@ -3,7 +3,7 @@
 //! Ported from TypeScript `rewards.ts` and `xp.ts`. Pure functions.
 
 use crate::battle::types::{
-    constants, BattleRewards, BattleUnit, GrowthRates, LevelUpEvent, StatGains,
+    BattleRewards, BattleUnit, GrowthRates, LevelUpEvent, StatGains, constants,
 };
 
 // ---------------------------------------------------------------------------
@@ -55,7 +55,11 @@ pub fn calculate_battle_rewards(
 ) -> BattleRewards {
     let total_xp: u32 = enemy_xp_gold.iter().map(|(xp, _)| xp).sum();
     let total_gold: u32 = enemy_xp_gold.iter().map(|(_, gold)| gold).sum();
-    let xp_per_unit = if party_size > 0 { total_xp / party_size } else { 0 };
+    let xp_per_unit = if party_size > 0 {
+        total_xp / party_size
+    } else {
+        0
+    };
 
     BattleRewards {
         total_xp,
@@ -73,7 +77,9 @@ pub fn distribute_rewards(party: &mut [BattleUnit], rewards: &BattleRewards) -> 
     let mut level_ups = Vec::new();
 
     for unit in party.iter_mut() {
-        if unit.level >= constants::MAX_LEVEL { continue; }
+        if unit.level >= constants::MAX_LEVEL {
+            continue;
+        }
 
         let old_level = unit.level;
         let (new_xp, new_level, leveled_up) = add_xp(unit, rewards.xp_per_unit);

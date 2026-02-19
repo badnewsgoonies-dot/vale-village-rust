@@ -52,7 +52,12 @@ pub fn enemy_choose_action(
         .copied()
         .collect();
 
-    usable.sort_by(|a, b| b.ai_hints.priority.partial_cmp(&a.ai_hints.priority).unwrap_or(std::cmp::Ordering::Equal));
+    usable.sort_by(|a, b| {
+        b.ai_hints
+            .priority
+            .partial_cmp(&a.ai_hints.priority)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // 3. Weighted pick
     if let Some(ability) = pick_weighted_ability(&usable, rng) {
@@ -65,7 +70,9 @@ pub fn enemy_choose_action(
 
     // 4. Basic attack
     let target = alive_targets.iter().min_by_key(|u| u.hp).unwrap();
-    BattleAction::Attack { target_id: target.id }
+    BattleAction::Attack {
+        target_id: target.id,
+    }
 }
 
 fn try_heal(
@@ -79,13 +86,27 @@ fn try_heal(
         .collect();
 
     let best = heals.iter().max_by_key(|a| a.base_power)?;
-    let weakest = allies.iter().filter(|u| u.is_alive()).min_by_key(|u| u.hp)?;
-    let target_id = if enemy.hp < weakest.hp { enemy.id } else { weakest.id };
+    let weakest = allies
+        .iter()
+        .filter(|u| u.is_alive())
+        .min_by_key(|u| u.hp)?;
+    let target_id = if enemy.hp < weakest.hp {
+        enemy.id
+    } else {
+        weakest.id
+    };
 
-    Some(BattleAction::Ability { ability_id: best.id.clone(), target_id })
+    Some(BattleAction::Ability {
+        ability_id: best.id.clone(),
+        target_id,
+    })
 }
 
-fn has_valid_targets(ability: &AbilityDef, opponents: &[&BattleUnit], allies: &[&BattleUnit]) -> bool {
+fn has_valid_targets(
+    ability: &AbilityDef,
+    opponents: &[&BattleUnit],
+    allies: &[&BattleUnit],
+) -> bool {
     match ability.targets {
         TargetKind::SingleEnemy | TargetKind::AllEnemies => !opponents.is_empty(),
         TargetKind::SingleAlly | TargetKind::AllAllies => !allies.is_empty(),
@@ -93,29 +114,56 @@ fn has_valid_targets(ability: &AbilityDef, opponents: &[&BattleUnit], allies: &[
     }
 }
 
-fn pick_weighted_ability<'a>(abilities: &[&'a AbilityDef], rng: &mut impl Rng) -> Option<&'a AbilityDef> {
-    if abilities.is_empty() { return None; }
+fn pick_weighted_ability<'a>(
+    abilities: &[&'a AbilityDef],
+    rng: &mut impl Rng,
+) -> Option<&'a AbilityDef> {
+    if abilities.is_empty() {
+        return None;
+    }
 
-    let weights: Vec<f32> = abilities.iter().map(|a| a.ai_hints.priority.max(0.1)).collect();
+    let weights: Vec<f32> = abilities
+        .iter()
+        .map(|a| a.ai_hints.priority.max(0.1))
+        .collect();
     let total: f32 = weights.iter().sum();
     let mut roll = rng.r#gen::<f32>() * total;
 
     for (i, w) in weights.iter().enumerate() {
         roll -= w;
-        if roll <= 0.0 { return Some(abilities[i]); }
+        if roll <= 0.0 {
+            return Some(abilities[i]);
+        }
     }
     Some(abilities[0])
 }
 
-fn select_target(ability: &AbilityDef, opponents: &[&BattleUnit], allies: &[&BattleUnit], rng: &mut impl Rng) -> u32 {
+fn select_target(
+    ability: &AbilityDef,
+    opponents: &[&BattleUnit],
+    allies: &[&BattleUnit],
+    rng: &mut impl Rng,
+) -> u32 {
     match ability.targets {
         TargetKind::SingleEnemy => {
             match ability.ai_hints.target {
-                AiTargetPref::Weakest => opponents.iter().min_by_key(|u| u.hp).map(|u| u.id).unwrap_or(0),
-                AiTargetPref::HighestDef => opponents.iter().max_by_key(|u| u.def).map(|u| u.id).unwrap_or(0),
+                AiTargetPref::Weakest => opponents
+                    .iter()
+                    .min_by_key(|u| u.hp)
+                    .map(|u| u.id)
+                    .unwrap_or(0),
+                AiTargetPref::HighestDef => opponents
+                    .iter()
+                    .max_by_key(|u| u.def)
+                    .map(|u| u.id)
+                    .unwrap_or(0),
                 AiTargetPref::HealerFirst | AiTargetPref::LowestRes => {
                     // Simplified: target lowest HP
-                    opponents.iter().min_by_key(|u| u.hp).map(|u| u.id).unwrap_or(0)
+                    opponents
+                        .iter()
+                        .min_by_key(|u| u.hp)
+                        .map(|u| u.id)
+                        .unwrap_or(0)
                 }
                 AiTargetPref::Random => {
                     let idx = rng.gen_range(0..opponents.len());
@@ -126,7 +174,12 @@ fn select_target(ability: &AbilityDef, opponents: &[&BattleUnit], allies: &[&Bat
         TargetKind::AllEnemies => opponents.first().map(|u| u.id).unwrap_or(0),
         TargetKind::SingleAlly => {
             if ability.ability_type == AbilityType::Healing {
-                allies.iter().filter(|u| u.is_alive()).min_by_key(|u| u.hp).map(|u| u.id).unwrap_or(0)
+                allies
+                    .iter()
+                    .filter(|u| u.is_alive())
+                    .min_by_key(|u| u.hp)
+                    .map(|u| u.id)
+                    .unwrap_or(0)
             } else {
                 let idx = rng.gen_range(0..allies.len().max(1));
                 allies.get(idx).map(|u| u.id).unwrap_or(0)

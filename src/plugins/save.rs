@@ -67,10 +67,7 @@ impl Default for SaveData {
 impl SaveData {
     /// Build save data from the current Bevy world/resources.
     pub fn from_game_state(world: &mut World) -> Self {
-        let party = world
-            .get_resource::<Party>()
-            .cloned()
-            .unwrap_or_default();
+        let party = world.get_resource::<Party>().cloned().unwrap_or_default();
         let gold = party.gold;
 
         let current_map = world
@@ -114,7 +111,10 @@ impl SaveData {
         let mut runtime_stats_by_unit_id = HashMap::<String, PartyMemberSaveData>::new();
         {
             let mut battle_query = world.query::<&BattleUnit>();
-            for unit in battle_query.iter(world).filter(|u| u.side == UnitSide::Player) {
+            for unit in battle_query
+                .iter(world)
+                .filter(|u| u.side == UnitSide::Player)
+            {
                 if let Some(unit_id) = name_to_unit_id.get(&unit.name) {
                     runtime_stats_by_unit_id.insert(
                         unit_id.clone(),
@@ -143,10 +143,7 @@ impl SaveData {
                 if let Some(runtime) = runtime_stats_by_unit_id.get(&unit_id) {
                     runtime.clone()
                 } else {
-                    let (hp, pp) = base_stats_by_id
-                        .get(&unit_id)
-                        .copied()
-                        .unwrap_or((100, 30));
+                    let (hp, pp) = base_stats_by_id.get(&unit_id).copied().unwrap_or((100, 30));
                     PartyMemberSaveData {
                         unit_id: unit_id.clone(),
                         hp,

@@ -4,7 +4,7 @@
 //! Randomness is injected via an `&mut impl Rng` parameter for determinism in tests.
 
 use crate::battle::types::{
-    constants, AbilityDef, AbilityType, BattleStatusEffect, BattleUnit, Element,
+    AbilityDef, AbilityType, BattleStatusEffect, BattleUnit, Element, constants,
 };
 use rand::Rng;
 
@@ -293,9 +293,15 @@ mod tests {
             side: UnitSide::Player,
             element,
             level: 5,
-            hp: 100, max_hp: 100,
-            pp: 50, max_pp: 50,
-            atk, def, mag, spd, luck: 5,
+            hp: 100,
+            max_hp: 100,
+            pp: 50,
+            max_pp: 50,
+            atk,
+            def,
+            mag,
+            spd,
+            luck: 5,
             status_effects: vec![],
             ability_ids: vec![],
             djinn_ids: vec![],
@@ -324,7 +330,12 @@ mod tests {
             ignore_defense_percent: 0.0,
             damage_reduction_percent: 0.0,
             shield_charges: None,
-            ai_hints: AiHints { priority: 1.0, target: AiTargetPref::Weakest, avoid_overkill: false, opener: false },
+            ai_hints: AiHints {
+                priority: 1.0,
+                target: AiTargetPref::Weakest,
+                avoid_overkill: false,
+                opener: false,
+            },
         }
     }
 
@@ -367,8 +378,10 @@ mod tests {
     #[test]
     fn test_shield_blocks_damage() {
         let mut unit = make_unit(10, 10, 10, 10, Element::Venus);
-        unit.status_effects
-            .push(BattleStatusEffect::Shield { remaining_charges: 1, duration: 3 });
+        unit.status_effects.push(BattleStatusEffect::Shield {
+            remaining_charges: 1,
+            duration: 3,
+        });
         let result = apply_damage_with_shields(&mut unit, 50);
         assert!(result.was_blocked);
         assert_eq!(result.actual_damage, 0);

@@ -18,14 +18,14 @@
 //! what another agent is building in `src/components/` and `src/data/`. When those
 //! modules land, replace the stubs with re-exports.
 
-pub mod types;
-pub mod damage;
-pub mod status;
-pub mod turn_order;
 pub mod ai;
-pub mod rewards;
+pub mod damage;
 pub mod djinn;
-pub mod systems;
 pub mod plugin;
+pub mod rewards;
+pub mod status;
+pub mod systems;
+pub mod turn_order;
+pub mod types;
 
 pub use plugin::BattlePlugin;

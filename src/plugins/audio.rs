@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use bevy::audio::{AudioSource, PlaybackSettings as BevyPlaybackSettings, Volume};
+use bevy::prelude::*;
 
 use crate::plugins::core_plugin::GameState;
 
@@ -107,7 +107,12 @@ fn play_overworld_theme_on_enter(
     settings: Res<AudioSettings>,
     bgm_query: Query<Entity, With<BgmMarker>>,
 ) {
-    play_bgm(&mut commands, &bgm_query, &tracks.overworld_theme, &settings);
+    play_bgm(
+        &mut commands,
+        &bgm_query,
+        &tracks.overworld_theme,
+        &settings,
+    );
 }
 
 fn play_battle_theme_on_enter(

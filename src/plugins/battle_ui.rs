@@ -6,12 +6,12 @@
 
 use bevy::prelude::*;
 
-use crate::components::stats::Element;
+use super::core_plugin::GameState;
 use crate::battle::types::{
     BattleAction, BattlePhase, BattleStateRes, BattleUnit, CommandMenu, CommandSelectState,
     UnitSide,
 };
-use super::core_plugin::GameState;
+use crate::components::stats::Element;
 
 // ── Colors ────────────────────────────────────────────────────────────
 const BATTLE_BG: Color = Color::srgb(0.06, 0.06, 0.14);
@@ -43,19 +43,31 @@ struct PartyDisplay {
 }
 
 #[derive(Component)]
-struct HpBar { unit_index: usize, is_enemy: bool }
+struct HpBar {
+    unit_index: usize,
+    is_enemy: bool,
+}
 
 #[derive(Component)]
-struct PpBar { unit_index: usize }
+struct PpBar {
+    unit_index: usize,
+}
 
 #[derive(Component)]
-struct HpText { index: usize, is_enemy: bool }
+struct HpText {
+    index: usize,
+    is_enemy: bool,
+}
 
 #[derive(Component)]
-struct PpText { index: usize }
+struct PpText {
+    index: usize,
+}
 
 #[derive(Component)]
-struct ActionMenuItem { index: usize }
+struct ActionMenuItem {
+    index: usize,
+}
 
 #[derive(Component)]
 struct ActionMenuRoot;
@@ -82,10 +94,15 @@ struct EnemyPanelRoot;
 struct PartyPanelRoot;
 
 #[derive(Component)]
-struct DamageNumber { lifetime: Timer, velocity: Vec2 }
+struct DamageNumber {
+    lifetime: Timer,
+    velocity: Vec2,
+}
 
 #[derive(Component)]
-struct EnemyTargetIndicator { index: usize }
+struct EnemyTargetIndicator {
+    index: usize,
+}
 
 // ── Resources ─────────────────────────────────────────────────────────
 
@@ -151,10 +168,14 @@ impl From<&BattleUnit> for BattleDisplayUnit {
 }
 
 #[derive(Resource, Debug, Default)]
-struct BattleEnemies { enemies: Vec<BattleDisplayUnit> }
+struct BattleEnemies {
+    enemies: Vec<BattleDisplayUnit>,
+}
 
 #[derive(Resource, Debug, Default)]
-struct BattleParty { members: Vec<BattleDisplayUnit> }
+struct BattleParty {
+    members: Vec<BattleDisplayUnit>,
+}
 
 const ACTION_LABELS: &[&str] = &["Fight", "Djinn", "Item", "Defend", "Flee"];
 
@@ -232,7 +253,10 @@ fn setup_battle_ui(mut commands: Commands) {
                 bar.spawn((
                     TurnOrderText,
                     Text::new("Turn: --"),
-                    TextFont { font_size: 13.0, ..default() },
+                    TextFont {
+                        font_size: 13.0,
+                        ..default()
+                    },
                     TextColor(DIM_TEXT),
                 ));
             });
@@ -262,7 +286,10 @@ fn setup_battle_ui(mut commands: Commands) {
                 area.spawn((
                     BattleMessageText,
                     Text::new(""),
-                    TextFont { font_size: 18.0, ..default() },
+                    TextFont {
+                        font_size: 18.0,
+                        ..default()
+                    },
                     TextColor(BRIGHT_GOLD),
                 ));
             });
@@ -311,12 +338,19 @@ fn setup_battle_ui(mut commands: Commands) {
                             ..default()
                         },
                         BackgroundColor(if is_sel { SELECTED_BG } else { Color::NONE }),
-                        BorderColor(if is_sel { GOLD_TEXT } else { Color::srgba(0.3, 0.3, 0.3, 0.5) }),
+                        BorderColor(if is_sel {
+                            GOLD_TEXT
+                        } else {
+                            Color::srgba(0.3, 0.3, 0.3, 0.5)
+                        }),
                     ))
                     .with_children(|btn| {
                         btn.spawn((
                             Text::new(label.to_string()),
-                            TextFont { font_size: 18.0, ..default() },
+                            TextFont {
+                                font_size: 18.0,
+                                ..default()
+                            },
                             TextColor(if is_sel { BRIGHT_GOLD } else { DIM_TEXT }),
                         ));
                     });
@@ -392,9 +426,15 @@ fn rebuild_battle_unit_panels(
                 col.spawn((
                     EnemyTargetIndicator { index: i },
                     Text::new("v"),
-                    TextFont { font_size: 18.0, ..default() },
+                    TextFont {
+                        font_size: 18.0,
+                        ..default()
+                    },
                     TextColor(Color::NONE),
-                    Node { margin: UiRect::bottom(Val::Px(2.0)), ..default() },
+                    Node {
+                        margin: UiRect::bottom(Val::Px(2.0)),
+                        ..default()
+                    },
                 ));
 
                 // Sprite placeholder
@@ -412,7 +452,10 @@ fn rebuild_battle_unit_panels(
                 // Name
                 col.spawn((
                     Text::new(&enemy.name),
-                    TextFont { font_size: 16.0, ..default() },
+                    TextFont {
+                        font_size: 16.0,
+                        ..default()
+                    },
                     TextColor(Color::WHITE),
                 ));
 
@@ -427,15 +470,28 @@ fn rebuild_battle_unit_panels(
                     BackgroundColor(HP_BAR_BG),
                 ))
                 .with_child((
-                    HpBar { unit_index: i, is_enemy: true },
-                    Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
+                    HpBar {
+                        unit_index: i,
+                        is_enemy: true,
+                    },
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        ..default()
+                    },
                     BackgroundColor(HP_GREEN),
                 ));
 
                 col.spawn((
-                    HpText { index: i, is_enemy: true },
+                    HpText {
+                        index: i,
+                        is_enemy: true,
+                    },
                     Text::new(format!("{}/{}", enemy.hp, enemy.max_hp)),
-                    TextFont { font_size: 12.0, ..default() },
+                    TextFont {
+                        font_size: 12.0,
+                        ..default()
+                    },
                     TextColor(Color::srgb(0.8, 0.8, 0.8)),
                 ));
             });
@@ -460,7 +516,10 @@ fn rebuild_battle_unit_panels(
                 col.spawn((
                     PartyDisplay { index: i },
                     Text::new(&member.name),
-                    TextFont { font_size: 16.0, ..default() },
+                    TextFont {
+                        font_size: 16.0,
+                        ..default()
+                    },
                     TextColor(GOLD_TEXT),
                 ));
 
@@ -475,15 +534,28 @@ fn rebuild_battle_unit_panels(
                     BackgroundColor(HP_BAR_BG),
                 ))
                 .with_child((
-                    HpBar { unit_index: i, is_enemy: false },
-                    Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
+                    HpBar {
+                        unit_index: i,
+                        is_enemy: false,
+                    },
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        ..default()
+                    },
                     BackgroundColor(HP_GREEN),
                 ));
 
                 col.spawn((
-                    HpText { index: i, is_enemy: false },
+                    HpText {
+                        index: i,
+                        is_enemy: false,
+                    },
                     Text::new(format!("HP {}/{}", member.hp, member.max_hp)),
-                    TextFont { font_size: 12.0, ..default() },
+                    TextFont {
+                        font_size: 12.0,
+                        ..default()
+                    },
                     TextColor(Color::srgb(0.7, 0.9, 0.7)),
                 ));
 
@@ -499,14 +571,21 @@ fn rebuild_battle_unit_panels(
                 ))
                 .with_child((
                     PpBar { unit_index: i },
-                    Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        ..default()
+                    },
                     BackgroundColor(PP_BLUE),
                 ));
 
                 col.spawn((
                     PpText { index: i },
                     Text::new(format!("PP {}/{}", member.pp, member.max_pp)),
-                    TextFont { font_size: 11.0, ..default() },
+                    TextFont {
+                        font_size: 11.0,
+                        ..default()
+                    },
                     TextColor(Color::srgb(0.6, 0.7, 0.9)),
                 ));
             });
@@ -573,7 +652,11 @@ fn battle_action_input(
         let is_sel = item.index == ui_state.action_cursor;
         if let Ok((mut bg, mut border)) = bg_query.get_mut(entity) {
             *bg = BackgroundColor(if is_sel { SELECTED_BG } else { Color::NONE });
-            *border = BorderColor(if is_sel { GOLD_TEXT } else { Color::srgba(0.3, 0.3, 0.3, 0.5) });
+            *border = BorderColor(if is_sel {
+                GOLD_TEXT
+            } else {
+                Color::srgba(0.3, 0.3, 0.3, 0.5)
+            });
         }
         for &child in children.iter() {
             if let Ok(mut tc) = text_query.get_mut(child) {
@@ -738,13 +821,25 @@ fn update_hp_bars(
             enemies
                 .enemies
                 .get(bar.unit_index)
-                .map(|e| if e.max_hp > 0 { e.hp as f32 / e.max_hp as f32 } else { 0.0 })
+                .map(|e| {
+                    if e.max_hp > 0 {
+                        e.hp as f32 / e.max_hp as f32
+                    } else {
+                        0.0
+                    }
+                })
                 .unwrap_or(0.0)
         } else {
             party
                 .members
                 .get(bar.unit_index)
-                .map(|m| if m.max_hp > 0 { m.hp as f32 / m.max_hp as f32 } else { 0.0 })
+                .map(|m| {
+                    if m.max_hp > 0 {
+                        m.hp as f32 / m.max_hp as f32
+                    } else {
+                        0.0
+                    }
+                })
                 .unwrap_or(0.0)
         };
         node.width = Val::Percent(ratio * 100.0);
@@ -764,7 +859,13 @@ fn update_hp_bars(
         let ratio = party
             .members
             .get(bar.unit_index)
-            .map(|m| if m.max_pp > 0 { m.pp as f32 / m.max_pp as f32 } else { 0.0 })
+            .map(|m| {
+                if m.max_pp > 0 {
+                    m.pp as f32 / m.max_pp as f32
+                } else {
+                    0.0
+                }
+            })
             .unwrap_or(0.0);
         node.width = Val::Percent(ratio * 100.0);
     }

@@ -2,7 +2,7 @@
 //!
 //! Ported from TypeScript `status.ts`. Pure functions.
 
-use crate::battle::types::{constants, BattleStatusEffect, BattleUnit, StatusKind};
+use crate::battle::types::{BattleStatusEffect, BattleUnit, StatusKind, constants};
 use rand::Rng;
 
 /// Result of processing status ticks for a single unit.
@@ -26,82 +26,159 @@ pub fn tick_status_effects(unit: &mut BattleUnit, rng: &mut impl Rng) -> StatusT
     let updated: Vec<BattleStatusEffect> = unit
         .status_effects
         .iter()
-        .filter_map(|effect| {
-            match effect {
-                BattleStatusEffect::Poison { duration } if *duration <= 0 => None,
-                BattleStatusEffect::Burn { duration } if *duration <= 0 => None,
-                BattleStatusEffect::HealOverTime { duration, .. } if *duration <= 0 => None,
+        .filter_map(|effect| match effect {
+            BattleStatusEffect::Poison { duration } if *duration <= 0 => None,
+            BattleStatusEffect::Burn { duration } if *duration <= 0 => None,
+            BattleStatusEffect::HealOverTime { duration, .. } if *duration <= 0 => None,
 
-                BattleStatusEffect::Poison { duration } => {
-                    let dmg = (max_hp as f32 * constants::POISON_PERCENT).floor() as i32;
-                    total_damage += dmg;
-                    messages.push(format!("{} takes {} poison damage!", unit.name, dmg));
-                    let new_dur = duration - 1;
-                    if new_dur > 0 { Some(BattleStatusEffect::Poison { duration: new_dur }) } else { None }
+            BattleStatusEffect::Poison { duration } => {
+                let dmg = (max_hp as f32 * constants::POISON_PERCENT).floor() as i32;
+                total_damage += dmg;
+                messages.push(format!("{} takes {} poison damage!", unit.name, dmg));
+                let new_dur = duration - 1;
+                if new_dur > 0 {
+                    Some(BattleStatusEffect::Poison { duration: new_dur })
+                } else {
+                    None
                 }
-                BattleStatusEffect::Burn { duration } => {
-                    let dmg = (max_hp as f32 * constants::BURN_PERCENT).floor() as i32;
-                    total_damage += dmg;
-                    messages.push(format!("{} takes {} burn damage!", unit.name, dmg));
-                    let new_dur = duration - 1;
-                    if new_dur > 0 { Some(BattleStatusEffect::Burn { duration: new_dur }) } else { None }
+            }
+            BattleStatusEffect::Burn { duration } => {
+                let dmg = (max_hp as f32 * constants::BURN_PERCENT).floor() as i32;
+                total_damage += dmg;
+                messages.push(format!("{} takes {} burn damage!", unit.name, dmg));
+                let new_dur = duration - 1;
+                if new_dur > 0 {
+                    Some(BattleStatusEffect::Burn { duration: new_dur })
+                } else {
+                    None
                 }
-                BattleStatusEffect::HealOverTime { heal_per_turn, duration } => {
-                    total_healing += *heal_per_turn;
-                    messages.push(format!("{} recovers {} HP!", unit.name, heal_per_turn));
-                    let new_dur = duration - 1;
-                    if new_dur > 0 {
-                        Some(BattleStatusEffect::HealOverTime { heal_per_turn: *heal_per_turn, duration: new_dur })
-                    } else { None }
+            }
+            BattleStatusEffect::HealOverTime {
+                heal_per_turn,
+                duration,
+            } => {
+                total_healing += *heal_per_turn;
+                messages.push(format!("{} recovers {} HP!", unit.name, heal_per_turn));
+                let new_dur = duration - 1;
+                if new_dur > 0 {
+                    Some(BattleStatusEffect::HealOverTime {
+                        heal_per_turn: *heal_per_turn,
+                        duration: new_dur,
+                    })
+                } else {
+                    None
                 }
-                BattleStatusEffect::Freeze { duration } => {
-                    if *duration <= 0 { return None; }
-                    if rng.r#gen::<f32>() < constants::FREEZE_BREAK_CHANCE {
-                        messages.push(format!("{} broke free from freeze!", unit.name));
-                        None
-                    } else {
-                        messages.push(format!("{} is frozen and cannot act!", unit.name));
-                        Some(BattleStatusEffect::Freeze { duration: duration - 1 })
-                    }
+            }
+            BattleStatusEffect::Freeze { duration } => {
+                if *duration <= 0 {
+                    return None;
                 }
-                BattleStatusEffect::Stun { duration } => {
-                    if *duration <= 0 { return None; }
-                    messages.push(format!("{} is stunned and cannot act!", unit.name));
-                    Some(BattleStatusEffect::Stun { duration: duration - 1 })
+                if rng.r#gen::<f32>() < constants::FREEZE_BREAK_CHANCE {
+                    messages.push(format!("{} broke free from freeze!", unit.name));
+                    None
+                } else {
+                    messages.push(format!("{} is frozen and cannot act!", unit.name));
+                    Some(BattleStatusEffect::Freeze {
+                        duration: duration - 1,
+                    })
                 }
-                BattleStatusEffect::Paralyze { duration } => {
-                    if *duration <= 0 { return None; }
-                    Some(BattleStatusEffect::Paralyze { duration: duration - 1 })
+            }
+            BattleStatusEffect::Stun { duration } => {
+                if *duration <= 0 {
+                    return None;
                 }
-                BattleStatusEffect::Blind { duration } => {
-                    if *duration <= 0 { return None; }
-                    Some(BattleStatusEffect::Blind { duration: duration - 1 })
+                messages.push(format!("{} is stunned and cannot act!", unit.name));
+                Some(BattleStatusEffect::Stun {
+                    duration: duration - 1,
+                })
+            }
+            BattleStatusEffect::Paralyze { duration } => {
+                if *duration <= 0 {
+                    return None;
                 }
-                BattleStatusEffect::Buff { stat, modifier, duration } => {
-                    if *duration <= 0 { return None; }
-                    Some(BattleStatusEffect::Buff { stat: *stat, modifier: *modifier, duration: duration - 1 })
+                Some(BattleStatusEffect::Paralyze {
+                    duration: duration - 1,
+                })
+            }
+            BattleStatusEffect::Blind { duration } => {
+                if *duration <= 0 {
+                    return None;
                 }
-                BattleStatusEffect::Debuff { stat, modifier, duration } => {
-                    if *duration <= 0 { return None; }
-                    Some(BattleStatusEffect::Debuff { stat: *stat, modifier: *modifier, duration: duration - 1 })
+                Some(BattleStatusEffect::Blind {
+                    duration: duration - 1,
+                })
+            }
+            BattleStatusEffect::Buff {
+                stat,
+                modifier,
+                duration,
+            } => {
+                if *duration <= 0 {
+                    return None;
                 }
-                BattleStatusEffect::Shield { remaining_charges, duration } => {
-                    if *duration <= 0 { return None; }
-                    Some(BattleStatusEffect::Shield { remaining_charges: *remaining_charges, duration: duration - 1 })
+                Some(BattleStatusEffect::Buff {
+                    stat: *stat,
+                    modifier: *modifier,
+                    duration: duration - 1,
+                })
+            }
+            BattleStatusEffect::Debuff {
+                stat,
+                modifier,
+                duration,
+            } => {
+                if *duration <= 0 {
+                    return None;
                 }
-                BattleStatusEffect::Invulnerable { duration } => {
-                    if *duration <= 0 { return None; }
-                    Some(BattleStatusEffect::Invulnerable { duration: duration - 1 })
+                Some(BattleStatusEffect::Debuff {
+                    stat: *stat,
+                    modifier: *modifier,
+                    duration: duration - 1,
+                })
+            }
+            BattleStatusEffect::Shield {
+                remaining_charges,
+                duration,
+            } => {
+                if *duration <= 0 {
+                    return None;
                 }
-                BattleStatusEffect::DamageReduction { percent, duration } => {
-                    if *duration <= 0 { return None; }
-                    Some(BattleStatusEffect::DamageReduction { percent: *percent, duration: duration - 1 })
+                Some(BattleStatusEffect::Shield {
+                    remaining_charges: *remaining_charges,
+                    duration: duration - 1,
+                })
+            }
+            BattleStatusEffect::Invulnerable { duration } => {
+                if *duration <= 0 {
+                    return None;
                 }
-                BattleStatusEffect::AutoRevive { .. } => Some(effect.clone()),
-                BattleStatusEffect::Immunity { types, all_negative, duration } => {
-                    if *duration <= 0 { return None; }
-                    Some(BattleStatusEffect::Immunity { types: types.clone(), all_negative: *all_negative, duration: duration - 1 })
+                Some(BattleStatusEffect::Invulnerable {
+                    duration: duration - 1,
+                })
+            }
+            BattleStatusEffect::DamageReduction { percent, duration } => {
+                if *duration <= 0 {
+                    return None;
                 }
+                Some(BattleStatusEffect::DamageReduction {
+                    percent: *percent,
+                    duration: duration - 1,
+                })
+            }
+            BattleStatusEffect::AutoRevive { .. } => Some(effect.clone()),
+            BattleStatusEffect::Immunity {
+                types,
+                all_negative,
+                duration,
+            } => {
+                if *duration <= 0 {
+                    return None;
+                }
+                Some(BattleStatusEffect::Immunity {
+                    types: types.clone(),
+                    all_negative: *all_negative,
+                    duration: duration - 1,
+                })
             }
         })
         .collect();
@@ -115,7 +192,11 @@ pub fn tick_status_effects(unit: &mut BattleUnit, rng: &mut impl Rng) -> StatusT
     }
     unit.status_effects = updated;
 
-    StatusTickResult { damage: total_damage, healing: total_healing, messages }
+    StatusTickResult {
+        damage: total_damage,
+        healing: total_healing,
+        messages,
+    }
 }
 
 /// Returns true if the unit is frozen or stunned.
@@ -128,17 +209,24 @@ pub fn is_frozen_or_stunned(unit: &BattleUnit) -> bool {
 
 /// Returns true if the unit's action fails due to paralysis (25% chance).
 pub fn check_paralyze_failure(unit: &BattleUnit, rng: &mut impl Rng) -> bool {
-    let paralyzed = unit.status_effects.iter().any(
-        |s| matches!(s, BattleStatusEffect::Paralyze { duration } if *duration >= 0),
-    );
+    let paralyzed = unit
+        .status_effects
+        .iter()
+        .any(|s| matches!(s, BattleStatusEffect::Paralyze { duration } if *duration >= 0));
     paralyzed && rng.r#gen::<f32>() < constants::PARALYZE_FAIL_CHANCE
 }
 
 /// Check if a unit is immune to a given status kind.
 pub fn is_immune_to_status(unit: &BattleUnit, status_kind: StatusKind) -> bool {
     unit.status_effects.iter().any(|s| match s {
-        BattleStatusEffect::Immunity { types, all_negative, .. } => {
-            if *all_negative && is_negative_kind(status_kind) { return true; }
+        BattleStatusEffect::Immunity {
+            types,
+            all_negative,
+            ..
+        } => {
+            if *all_negative && is_negative_kind(status_kind) {
+                return true;
+            }
             types.contains(&status_kind)
         }
         _ => false,
@@ -146,10 +234,15 @@ pub fn is_immune_to_status(unit: &BattleUnit, status_kind: StatusKind) -> bool {
 }
 
 fn is_negative_kind(kind: StatusKind) -> bool {
-    matches!(kind,
-        StatusKind::Poison | StatusKind::Burn | StatusKind::Freeze
-        | StatusKind::Stun | StatusKind::Paralyze | StatusKind::Blind
-        | StatusKind::Debuff
+    matches!(
+        kind,
+        StatusKind::Poison
+            | StatusKind::Burn
+            | StatusKind::Freeze
+            | StatusKind::Stun
+            | StatusKind::Paralyze
+            | StatusKind::Blind
+            | StatusKind::Debuff
     )
 }
 
@@ -162,17 +255,28 @@ pub fn apply_status_to_unit(unit: &mut BattleUnit, new_status: BattleStatusEffec
     }
 
     if kind == StatusKind::Immunity {
-        unit.status_effects.retain(|s| !matches!(s, BattleStatusEffect::Immunity { .. }));
+        unit.status_effects
+            .retain(|s| !matches!(s, BattleStatusEffect::Immunity { .. }));
     }
 
     // Stack limit for buffs/debuffs
     match &new_status {
         BattleStatusEffect::Buff { stat, .. } | BattleStatusEffect::Debuff { stat, .. } => {
-            let count = unit.status_effects.iter().filter(|s| match (s, &new_status) {
-                (BattleStatusEffect::Buff { stat: es, .. }, BattleStatusEffect::Buff { .. }) => es == stat,
-                (BattleStatusEffect::Debuff { stat: es, .. }, BattleStatusEffect::Debuff { .. }) => es == stat,
-                _ => false,
-            }).count();
+            let count = unit
+                .status_effects
+                .iter()
+                .filter(|s| match (s, &new_status) {
+                    (
+                        BattleStatusEffect::Buff { stat: es, .. },
+                        BattleStatusEffect::Buff { .. },
+                    ) => es == stat,
+                    (
+                        BattleStatusEffect::Debuff { stat: es, .. },
+                        BattleStatusEffect::Debuff { .. },
+                    ) => es == stat,
+                    _ => false,
+                })
+                .count();
             if count >= constants::BUFF_DEBUFF_STACK_LIMIT {
                 return false;
             }
@@ -197,12 +301,26 @@ mod tests {
 
     fn make_unit(hp: i32, max_hp: i32) -> BattleUnit {
         BattleUnit {
-            id: 1, name: "TestUnit".into(), side: UnitSide::Player,
-            element: Element::Venus, level: 5,
-            hp, max_hp, pp: 50, max_pp: 50,
-            atk: 10, def: 10, mag: 10, spd: 10, luck: 5,
-            status_effects: vec![], ability_ids: vec![], djinn_ids: vec![],
-            damage_taken: 0, damage_dealt: 0, xp: 0,
+            id: 1,
+            name: "TestUnit".into(),
+            side: UnitSide::Player,
+            element: Element::Venus,
+            level: 5,
+            hp,
+            max_hp,
+            pp: 50,
+            max_pp: 50,
+            atk: 10,
+            def: 10,
+            mag: 10,
+            spd: 10,
+            luck: 5,
+            status_effects: vec![],
+            ability_ids: vec![],
+            djinn_ids: vec![],
+            damage_taken: 0,
+            damage_dealt: 0,
+            xp: 0,
             growth_rates: GrowthRates::default(),
         }
     }
@@ -210,7 +328,8 @@ mod tests {
     #[test]
     fn test_poison_tick() {
         let mut unit = make_unit(100, 100);
-        unit.status_effects.push(BattleStatusEffect::Poison { duration: 3 });
+        unit.status_effects
+            .push(BattleStatusEffect::Poison { duration: 3 });
         let mut rng = StdRng::seed_from_u64(42);
         let result = tick_status_effects(&mut unit, &mut rng);
         assert_eq!(result.damage, 8);
@@ -221,7 +340,9 @@ mod tests {
     fn test_immunity_blocks_status() {
         let mut unit = make_unit(100, 100);
         unit.status_effects.push(BattleStatusEffect::Immunity {
-            types: vec![StatusKind::Poison], all_negative: false, duration: 5,
+            types: vec![StatusKind::Poison],
+            all_negative: false,
+            duration: 5,
         });
         let applied = apply_status_to_unit(&mut unit, BattleStatusEffect::Poison { duration: 3 });
         assert!(!applied);
@@ -231,10 +352,22 @@ mod tests {
     fn test_buff_stack_limit() {
         let mut unit = make_unit(100, 100);
         for _ in 0..constants::BUFF_DEBUFF_STACK_LIMIT {
-            assert!(apply_status_to_unit(&mut unit,
-                BattleStatusEffect::Buff { stat: StatKind::Atk, modifier: 5, duration: 3 }));
+            assert!(apply_status_to_unit(
+                &mut unit,
+                BattleStatusEffect::Buff {
+                    stat: StatKind::Atk,
+                    modifier: 5,
+                    duration: 3
+                }
+            ));
         }
-        assert!(!apply_status_to_unit(&mut unit,
-            BattleStatusEffect::Buff { stat: StatKind::Atk, modifier: 5, duration: 3 }));
+        assert!(!apply_status_to_unit(
+            &mut unit,
+            BattleStatusEffect::Buff {
+                stat: StatKind::Atk,
+                modifier: 5,
+                duration: 3
+            }
+        ));
     }
 }

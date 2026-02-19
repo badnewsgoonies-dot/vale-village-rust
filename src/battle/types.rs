@@ -50,20 +50,58 @@ pub enum StatusKind {
 /// Rich status effects used during battle resolution.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
 pub enum BattleStatusEffect {
-    Poison { duration: i32 },
-    Burn { duration: i32 },
-    Freeze { duration: i32 },
-    Stun { duration: i32 },
-    Paralyze { duration: i32 },
-    Blind { duration: i32 },
-    HealOverTime { heal_per_turn: i32, duration: i32 },
-    Buff { stat: StatKind, modifier: i32, duration: i32 },
-    Debuff { stat: StatKind, modifier: i32, duration: i32 },
-    Shield { remaining_charges: i32, duration: i32 },
-    Invulnerable { duration: i32 },
-    DamageReduction { percent: f32, duration: i32 },
-    AutoRevive { hp_percent: f32, uses_remaining: i32 },
-    Immunity { types: Vec<StatusKind>, all_negative: bool, duration: i32 },
+    Poison {
+        duration: i32,
+    },
+    Burn {
+        duration: i32,
+    },
+    Freeze {
+        duration: i32,
+    },
+    Stun {
+        duration: i32,
+    },
+    Paralyze {
+        duration: i32,
+    },
+    Blind {
+        duration: i32,
+    },
+    HealOverTime {
+        heal_per_turn: i32,
+        duration: i32,
+    },
+    Buff {
+        stat: StatKind,
+        modifier: i32,
+        duration: i32,
+    },
+    Debuff {
+        stat: StatKind,
+        modifier: i32,
+        duration: i32,
+    },
+    Shield {
+        remaining_charges: i32,
+        duration: i32,
+    },
+    Invulnerable {
+        duration: i32,
+    },
+    DamageReduction {
+        percent: f32,
+        duration: i32,
+    },
+    AutoRevive {
+        hp_percent: f32,
+        uses_remaining: i32,
+    },
+    Immunity {
+        types: Vec<StatusKind>,
+        all_negative: bool,
+        duration: i32,
+    },
 }
 
 impl BattleStatusEffect {
@@ -407,11 +445,10 @@ pub mod constants {
     pub const SUMMON_DAMAGE_3: i32 = 300;
 
     pub const XP_CURVE: [u32; 21] = [
-        0,     // index 0 (unused)
-        0,     // level 1
-        100, 350, 850, 1850, 3100, 4700, 6700, 9200,
-        12300, 16000, 20400, 25600, 31700, 38800, 47000, 56400,
-        67100, 79200, 92800,
+        0, // index 0 (unused)
+        0, // level 1
+        100, 350, 850, 1850, 3100, 4700, 6700, 9200, 12300, 16000, 20400, 25600, 31700, 38800,
+        47000, 56400, 67100, 79200, 92800,
     ];
     pub const MAX_LEVEL: u8 = 20;
 

@@ -7,12 +7,14 @@ use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
 
 use battle::BattlePlugin;
-use plugins::core_plugin::CoreGamePlugin;
-use plugins::save::SavePlugin;
 use plugins::audio::GameAudioPlugin;
-use plugins::ui::UiPlugin;
-use plugins::overworld::OverworldPlugin;
 use plugins::battle_ui::BattleUiPlugin;
+use plugins::core_plugin::CoreGamePlugin;
+use plugins::inventory::InventoryPlugin;
+use plugins::overworld::OverworldPlugin;
+use plugins::save::SavePlugin;
+use plugins::shop::ShopPlugin;
+use plugins::ui::UiPlugin;
 
 fn main() {
     App::new()
@@ -39,6 +41,8 @@ fn main() {
         // UI & gameplay
         .add_plugins(UiPlugin)
         .add_plugins(OverworldPlugin)
+        .add_plugins(ShopPlugin)
+        .add_plugins(InventoryPlugin)
         .add_plugins(BattleUiPlugin)
         .add_plugins(BattlePlugin)
         // Default camera (used by UI screens; overworld spawns its own)

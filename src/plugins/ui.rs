@@ -139,16 +139,12 @@ impl Plugin for UiPlugin {
             .add_systems(OnEnter(GameState::MainMenu), setup_main_menu)
             .add_systems(
                 Update,
-                (main_menu_input, title_pulse_animation)
-                    .run_if(in_state(GameState::MainMenu)),
+                (main_menu_input, title_pulse_animation).run_if(in_state(GameState::MainMenu)),
             )
             .add_systems(OnExit(GameState::MainMenu), cleanup::<MainMenuRoot>)
             // Pause Menu
             .add_systems(OnEnter(GameState::Paused), setup_pause_menu)
-            .add_systems(
-                Update,
-                pause_menu_input.run_if(in_state(GameState::Paused)),
-            )
+            .add_systems(Update, pause_menu_input.run_if(in_state(GameState::Paused)))
             .add_systems(
                 Update,
                 pause_menu_feedback_update.run_if(in_state(GameState::Paused)),
@@ -159,10 +155,7 @@ impl Plugin for UiPlugin {
             )
             // Settings
             .add_systems(OnEnter(GameState::Settings), setup_settings)
-            .add_systems(
-                Update,
-                settings_input.run_if(in_state(GameState::Settings)),
-            )
+            .add_systems(Update, settings_input.run_if(in_state(GameState::Settings)))
             .add_systems(OnExit(GameState::Settings), cleanup::<SettingsRoot>);
     }
 }
@@ -332,10 +325,7 @@ fn setup_main_menu(mut commands: Commands) {
         });
 }
 
-fn title_pulse_animation(
-    time: Res<Time>,
-    mut query: Query<&mut TextColor, With<TitlePulseText>>,
-) {
+fn title_pulse_animation(time: Res<Time>, mut query: Query<&mut TextColor, With<TitlePulseText>>) {
     let alpha = (time.elapsed_secs() * 2.0).sin() * 0.3 + 0.7;
     for mut color in &mut query {
         color.0 = Color::srgba(0.5, 0.5, 0.5, alpha * 0.7);
@@ -396,7 +386,9 @@ fn main_menu_input(
             0 => start_transition(&mut transition, GameState::Overworld), // New Game
             1 => start_transition(&mut transition, GameState::Overworld), // Continue (stub)
             2 => start_transition(&mut transition, GameState::Settings),
-            3 => { app_exit.send(AppExit::Success); },
+            3 => {
+                app_exit.send(AppExit::Success);
+            }
             _ => {}
         }
     }
