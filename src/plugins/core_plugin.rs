@@ -56,8 +56,8 @@ pub struct Party {
     pub bench: Vec<String>,
     /// Gold currency.
     pub gold: u32,
-    /// Inventory of item_id -> quantity.
-    pub inventory: HashMap<String, u32>,
+    /// Inventory of owned item/equipment IDs.
+    pub inventory: Vec<String>,
     /// Equipped items per unit: unit_id -> (slot_name -> equipment_id).
     pub equipment: HashMap<String, HashMap<String, String>>,
 }
@@ -68,7 +68,7 @@ impl Default for Party {
             active: vec!["adept".into()],
             bench: Vec::new(),
             gold: 100,
-            inventory: HashMap::new(),
+            inventory: Vec::new(),
             equipment: HashMap::new(),
         }
     }

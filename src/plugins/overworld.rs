@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use rand::Rng;
 
 use super::core_plugin::GameState;
+use super::shop::CurrentShop;
 use super::ui::{ScreenTransition, start_transition};
 use crate::battle::types::{
     BattlePhase, BattleUnit, EndBattleEvent, GrowthRates, StartBattleEvent, UnitSide,
@@ -66,6 +67,7 @@ struct DialogState {
     lines: Vec<String>,
     current_line: usize,
     speaker: String,
+    speaker_entity: Option<Entity>,
 }
 
 #[derive(Resource, Debug, Default)]
@@ -316,6 +318,7 @@ fn setup_overworld(
             "The tower to the north holds great danger...".into(),
             "But also great treasure. Prepare yourself well.".into(),
         ],
+        None,
     );
     spawn_npc(
         &mut commands,
@@ -326,6 +329,20 @@ fn setup_overworld(
             "Welcome! Take a look at my wares.".into(),
             "We have the finest potions in all the land!".into(),
         ],
+        Some(ShopKeeper {
+            items: vec![
+                "potion".into(),
+                "antidote".into(),
+                "jupiter-hermes-water".into(),
+                "mercury-mist-elixir".into(),
+            ],
+            equipment: vec![
+                "wooden-sword".into(),
+                "wooden-axe".into(),
+                "wooden-staff".into(),
+                "short-bow".into(),
+            ],
+        }),
     );
     spawn_npc(
         &mut commands,
@@ -336,6 +353,7 @@ fn setup_overworld(
             "Rest here to recover your strength.".into(),
             "That'll be 20 gold. ...Just kidding, it's free for now!".into(),
         ],
+        None,
     );
     spawn_npc(
         &mut commands,
@@ -347,6 +365,7 @@ fn setup_overworld(
             "Only the bravest adventurers dare enter.".into(),
             "Make sure you have Djinn equipped before you go!".into(),
         ],
+        None,
     );
 
     // Dialog UI (hidden initially)
@@ -405,8 +424,9 @@ fn spawn_npc(
     pos: GridPosition,
     color: Color,
     dialog: Vec<String>,
+    shopkeeper: Option<ShopKeeper>,
 ) {
-    commands.spawn((
+    let mut npc = commands.spawn((
         OverworldRoot,
         Npc {
             name: name.to_string(),
@@ -416,6 +436,10 @@ fn spawn_npc(
         Sprite::from_color(color, Vec2::new(TILE_SIZE * 0.7, TILE_SIZE * 0.7)),
         Transform::from_xyz(pos.x as f32 * TILE_SIZE, -(pos.y as f32) * TILE_SIZE, 5.0),
     ));
+
+    if let Some(shopkeeper) = shopkeeper {
+        npc.insert(shopkeeper);
+    }
 }
 
 // ── Systems ───────────────────────────────────────────────────────────
@@ -573,7 +597,7 @@ fn player_interact(
     keys: Res<ButtonInput<KeyCode>>,
     mut dialog: ResMut<DialogState>,
     player_query: Query<(&GridPosition, &PlayerMovement), With<Player>>,
-    npc_query: Query<(&GridPosition, &Npc)>,
+    npc_query: Query<(Entity, &GridPosition, &Npc)>,
     mut dialog_box: Query<&mut Visibility, With<DialogBox>>,
     mut dialog_text: Query<&mut Text, With<DialogText>>,
 ) {
@@ -596,12 +620,13 @@ fn player_interact(
     };
     let face = GridPosition::new(player_pos.x + fx, player_pos.y + fy);
 
-    for (npc_pos, npc) in &npc_query {
+    for (npc_entity, npc_pos, npc) in &npc_query {
         if *npc_pos == face {
             dialog.active = true;
             dialog.speaker = npc.name.clone();
             dialog.lines = npc.dialog.clone();
             dialog.current_line = 0;
+            dialog.speaker_entity = Some(npc_entity);
 
             if let Ok(mut vis) = dialog_box.get_single_mut() {
                 *vis = Visibility::Visible;
@@ -617,6 +642,9 @@ fn player_interact(
 fn dialog_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut dialog: ResMut<DialogState>,
+    shopkeepers: Query<&ShopKeeper>,
+    mut current_shop: ResMut<CurrentShop>,
+    mut next_game_state: ResMut<NextState<GameState>>,
     mut dialog_box: Query<&mut Visibility, With<DialogBox>>,
     mut dialog_text: Query<&mut Text, With<DialogText>>,
 ) {
@@ -631,6 +659,13 @@ fn dialog_input(
             dialog.active = false;
             if let Ok(mut vis) = dialog_box.get_single_mut() {
                 *vis = Visibility::Hidden;
+            }
+            if let Some(npc_entity) = dialog.speaker_entity.take() {
+                if let Ok(shopkeeper) = shopkeepers.get(npc_entity) {
+                    current_shop.items = shopkeeper.items.clone();
+                    current_shop.equipment = shopkeeper.equipment.clone();
+                    next_game_state.set(GameState::Shop);
+                }
             }
         } else {
             if let Ok(mut text) = dialog_text.get_single_mut() {

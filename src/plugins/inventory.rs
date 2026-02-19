@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use std::collections::HashMap;
 
 use crate::plugins::core_plugin::{GameData, GameState, Party};
 
@@ -44,26 +45,40 @@ impl Plugin for InventoryPlugin {
 }
 
 fn setup_inventory_ui(mut commands: Commands, party: Res<Party>, data: Res<GameData>) {
+    let mut inventory_counts: HashMap<String, u32> = HashMap::new();
+    for item_id in &party.inventory {
+        *inventory_counts.entry(item_id.clone()).or_insert(0) += 1;
+    }
+
     let mut item_lines = party
         .inventory
         .iter()
-        .filter(|(_, amount)| **amount > 0)
-        .map(|(item_id, amount)| {
-            let (name, description) = data
-                .items
-                .get(item_id)
-                .map(|def| (def.name.clone(), def.description.clone()))
-                .unwrap_or_else(|| {
-                    (
-                        format!("Unknown Item ({item_id})"),
-                        "No description available.".to_string(),
-                    )
-                });
+        .map(|item_id| item_id.clone())
+        .collect::<Vec<_>>();
 
-            (
-                name.to_lowercase(),
-                format!("{name} x{amount} - {description}"),
-            )
+    item_lines.sort();
+    item_lines.dedup();
+
+    let mut item_lines = item_lines
+        .iter()
+        .filter_map(|item_id| {
+            let amount = inventory_counts.get(item_id).copied().unwrap_or(0);
+            if amount == 0 {
+                return None;
+            }
+
+            let (name, description) = if let Some(def) = data.items.get(item_id) {
+                (def.name.clone(), def.description.clone())
+            } else if let Some(def) = data.equipment.get(item_id) {
+                (def.name.clone(), def.description.clone())
+            } else {
+                (
+                    format!("Unknown Item ({item_id})"),
+                    "No description available.".to_string(),
+                )
+            };
+
+            Some((name.to_lowercase(), format!("{name} x{amount} - {description}")))
         })
         .collect::<Vec<_>>();
 
