@@ -98,8 +98,6 @@ impl Plugin for CoreGamePlugin {
         // Register component types for reflection
         app.register_type::<crate::components::stats::UnitStats>();
         app.register_type::<crate::components::stats::ActiveStatusEffect>();
-        app.register_type::<crate::components::battle::BattleState>();
-        app.register_type::<crate::components::battle::TurnOrder>();
         app.register_type::<crate::components::battle::InBattle>();
         app.register_type::<crate::components::battle::EnemyCombatant>();
         app.register_type::<crate::components::battle::PartyCombatant>();
