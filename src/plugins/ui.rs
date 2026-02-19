@@ -332,6 +332,7 @@ fn title_pulse_animation(time: Res<Time>, mut query: Query<&mut TextColor, With<
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn main_menu_input(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
@@ -752,6 +753,7 @@ fn setup_settings(
     commands.insert_resource(ui_state);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn settings_input(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,

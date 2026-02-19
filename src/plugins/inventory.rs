@@ -50,11 +50,7 @@ fn setup_inventory_ui(mut commands: Commands, party: Res<Party>, data: Res<GameD
         *inventory_counts.entry(item_id.clone()).or_insert(0) += 1;
     }
 
-    let mut item_lines = party
-        .inventory
-        .iter()
-        .map(|item_id| item_id.clone())
-        .collect::<Vec<_>>();
+    let mut item_lines = party.inventory.to_vec();
 
     item_lines.sort();
     item_lines.dedup();
@@ -78,7 +74,10 @@ fn setup_inventory_ui(mut commands: Commands, party: Res<Party>, data: Res<GameD
                 )
             };
 
-            Some((name.to_lowercase(), format!("{name} x{amount} - {description}")))
+            Some((
+                name.to_lowercase(),
+                format!("{name} x{amount} - {description}"),
+            ))
         })
         .collect::<Vec<_>>();
 

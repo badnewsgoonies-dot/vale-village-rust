@@ -167,12 +167,12 @@ pub fn command_select_system(
             {
                 cmd_state.cursor_index += 1;
             }
-            if keyboard.just_pressed(KeyCode::Enter) {
-                if let Some(ability) = affordable.get(cmd_state.cursor_index) {
-                    cmd_state.selected_ability = Some(ability.id.clone());
-                    cmd_state.menu = CommandMenu::TargetSelect;
-                    cmd_state.cursor_index = 0;
-                }
+            if keyboard.just_pressed(KeyCode::Enter)
+                && let Some(ability) = affordable.get(cmd_state.cursor_index)
+            {
+                cmd_state.selected_ability = Some(ability.id.clone());
+                cmd_state.menu = CommandMenu::TargetSelect;
+                cmd_state.cursor_index = 0;
             }
         }
         CommandMenu::TargetSelect => {
@@ -197,21 +197,21 @@ pub fn command_select_system(
             {
                 cmd_state.cursor_index += 1;
             }
-            if keyboard.just_pressed(KeyCode::Enter) {
-                if let Some(target) = targets.get(cmd_state.cursor_index) {
-                    let action = if let Some(ref aid) = cmd_state.selected_ability {
-                        BattleAction::Ability {
-                            ability_id: aid.clone(),
-                            target_id: target.id,
-                        }
-                    } else {
-                        BattleAction::Attack {
-                            target_id: target.id,
-                        }
-                    };
-                    set_pending_action(&mut cmd_state, action);
-                    cmd_state.selected_ability = None;
-                }
+            if keyboard.just_pressed(KeyCode::Enter)
+                && let Some(target) = targets.get(cmd_state.cursor_index)
+            {
+                let action = if let Some(ref aid) = cmd_state.selected_ability {
+                    BattleAction::Ability {
+                        ability_id: aid.clone(),
+                        target_id: target.id,
+                    }
+                } else {
+                    BattleAction::Attack {
+                        target_id: target.id,
+                    }
+                };
+                set_pending_action(&mut cmd_state, action);
+                cmd_state.selected_ability = None;
             }
         }
         CommandMenu::DjinnSelect => {
@@ -234,12 +234,12 @@ pub fn command_select_system(
             {
                 cmd_state.cursor_index += 1;
             }
-            if keyboard.just_pressed(KeyCode::Enter) {
-                if let Some(djinn_id) = unit.djinn_ids.get(cmd_state.cursor_index) {
-                    cmd_state.selected_djinn = Some(djinn_id.clone());
-                    cmd_state.menu = CommandMenu::TargetSelect;
-                    cmd_state.cursor_index = 0;
-                }
+            if keyboard.just_pressed(KeyCode::Enter)
+                && let Some(djinn_id) = unit.djinn_ids.get(cmd_state.cursor_index)
+            {
+                cmd_state.selected_djinn = Some(djinn_id.clone());
+                cmd_state.menu = CommandMenu::TargetSelect;
+                cmd_state.cursor_index = 0;
             }
         }
         CommandMenu::ItemSelect => {
@@ -295,6 +295,7 @@ pub fn ai_select_system(
 // Resolution
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub fn resolution_system(
     mut battle_state: ResMut<BattleStateRes>,
     mut rng: ResMut<BattleRng>,
@@ -547,6 +548,7 @@ fn execute_basic_attack(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_ability(
     caster_id: u32,
     ability_id: &str,
@@ -638,10 +640,10 @@ fn execute_ability(
                             was_blocked: result.was_blocked,
                         });
                         // Apply status from ability
-                        if let Some(ref se) = ability.status_effect {
-                            if let Some(battle_status) = convert_status_effect(se) {
-                                status::apply_status_to_unit(&mut target, battle_status);
-                            }
+                        if let Some(ref se) = ability.status_effect
+                            && let Some(battle_status) = convert_status_effect(se)
+                        {
+                            status::apply_status_to_unit(&mut target, battle_status);
                         }
                         if target.is_ko() {
                             ko_events.send(UnitKoEvent {
@@ -680,10 +682,10 @@ fn execute_ability(
                                 element: ability.element,
                                 was_blocked: result.was_blocked,
                             });
-                            if let Some(ref se) = ability.status_effect {
-                                if let Some(battle_status) = convert_status_effect(se) {
-                                    status::apply_status_to_unit(&mut target, battle_status);
-                                }
+                            if let Some(ref se) = ability.status_effect
+                                && let Some(battle_status) = convert_status_effect(se)
+                            {
+                                status::apply_status_to_unit(&mut target, battle_status);
                             }
                             if target.is_ko() {
                                 ko_events.send(UnitKoEvent {
@@ -704,10 +706,10 @@ fn execute_ability(
                             .map(|u| u.id)
                             .collect();
                         for aid in aids {
-                            if let Some(mut ally) = units.iter_mut().find(|u| u.id == aid) {
-                                if let Some(battle_status) = convert_status_effect(se) {
-                                    status::apply_status_to_unit(&mut ally, battle_status);
-                                }
+                            if let Some(mut ally) = units.iter_mut().find(|u| u.id == aid)
+                                && let Some(battle_status) = convert_status_effect(se)
+                            {
+                                status::apply_status_to_unit(&mut ally, battle_status);
                             }
                         }
                     }

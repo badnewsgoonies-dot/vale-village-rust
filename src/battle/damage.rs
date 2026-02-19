@@ -58,11 +58,11 @@ pub fn consume_shield_charge(unit: &mut BattleUnit) {
         if let BattleStatusEffect::Shield {
             remaining_charges, ..
         } = effect
+            && *remaining_charges > 0
+            && !consumed
         {
-            if *remaining_charges > 0 && !consumed {
-                *remaining_charges -= 1;
-                consumed = true;
-            }
+            *remaining_charges -= 1;
+            consumed = true;
         }
     }
     unit.status_effects.retain(|s| {

@@ -608,6 +608,7 @@ fn push_pending_action(cmd_state: &mut CommandSelectState, action: BattleAction)
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn battle_action_input(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,

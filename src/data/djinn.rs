@@ -25,7 +25,7 @@ pub enum DjinnTier {
     Tier3,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StatModifier {
     #[serde(default)]
     pub atk: i32,
@@ -39,19 +39,6 @@ pub struct StatModifier {
     pub hp: i32,
     #[serde(default)]
     pub pp: i32,
-}
-
-impl Default for StatModifier {
-    fn default() -> Self {
-        Self {
-            atk: 0,
-            def: 0,
-            mag: 0,
-            spd: 0,
-            hp: 0,
-            pp: 0,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
