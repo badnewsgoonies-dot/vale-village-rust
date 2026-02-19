@@ -1,0 +1,390 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+use crate::components::stats::Element;
+
+// ---------------------------------------------------------------------------
+// Enemy definition — a template for spawning enemies
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnemyAbility {
+    pub ability_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnemyDefinition {
+    pub id: String,
+    pub name: String,
+    pub level: u8,
+    pub element: Element,
+    pub hp: i32,
+    pub pp: i32,
+    pub atk: i32,
+    pub def: i32,
+    pub mag: i32,
+    pub spd: i32,
+    pub abilities: Vec<EnemyAbility>,
+    pub base_xp: u32,
+    pub base_gold: u32,
+}
+
+/// Helper to create an enemy ability entry.
+fn ea(id: &str) -> EnemyAbility {
+    EnemyAbility { ability_id: id.into() }
+}
+
+/// Build the registry of all enemy definitions (50 types).
+pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
+    let mut m = HashMap::new();
+
+    let enemies = vec![
+        // ===== ENSLAVED BEASTS - Tier 1 (5) =====
+        EnemyDefinition {
+            id: "mercury-slime".into(), name: "Mercury Slime".into(),
+            level: 1, element: Element::Mercury,
+            hp: 40, pp: 8, atk: 4, def: 5, mag: 6, spd: 5,
+            abilities: vec![ea("strike"), ea("ice-shard")],
+            base_xp: 12, base_gold: 6,
+        },
+        EnemyDefinition {
+            id: "venus-wolf".into(), name: "Earthbound Wolf".into(),
+            level: 1, element: Element::Venus,
+            hp: 55, pp: 8, atk: 11, def: 7, mag: 3, spd: 11,
+            abilities: vec![ea("strike"), ea("heavy-strike")],
+            base_xp: 16, base_gold: 8,
+        },
+        EnemyDefinition {
+            id: "mars-bandit".into(), name: "Flame Bandit".into(),
+            level: 2, element: Element::Mars,
+            hp: 60, pp: 12, atk: 13, def: 6, mag: 8, spd: 10,
+            abilities: vec![ea("strike"), ea("heavy-strike"), ea("fireball")],
+            base_xp: 20, base_gold: 12,
+        },
+        EnemyDefinition {
+            id: "jupiter-sprite".into(), name: "Wind Sprite".into(),
+            level: 2, element: Element::Jupiter,
+            hp: 45, pp: 15, atk: 5, def: 5, mag: 14, spd: 17,
+            abilities: vec![ea("gust"), ea("blind"), ea("paralyze-shock")],
+            base_xp: 18, base_gold: 10,
+        },
+        EnemyDefinition {
+            id: "venus-beetle".into(), name: "Stone Beetle".into(),
+            level: 2, element: Element::Venus,
+            hp: 80, pp: 8, atk: 8, def: 15, mag: 3, spd: 6,
+            abilities: vec![ea("strike"), ea("guard-break")],
+            base_xp: 22, base_gold: 12,
+        },
+
+        // ===== ENSLAVED BEASTS - Wolf Pack (3) =====
+        EnemyDefinition {
+            id: "mars-wolf".into(), name: "Flame Wolf".into(),
+            level: 2, element: Element::Mars,
+            hp: 58, pp: 10, atk: 12, def: 6, mag: 5, spd: 13,
+            abilities: vec![ea("strike"), ea("heavy-strike"), ea("burn-touch")],
+            base_xp: 18, base_gold: 9,
+        },
+        EnemyDefinition {
+            id: "mercury-wolf".into(), name: "Frost Wolf".into(),
+            level: 2, element: Element::Mercury,
+            hp: 56, pp: 12, atk: 10, def: 7, mag: 6, spd: 14,
+            abilities: vec![ea("strike"), ea("heavy-strike"), ea("freeze-blast")],
+            base_xp: 18, base_gold: 9,
+        },
+        EnemyDefinition {
+            id: "jupiter-wolf".into(), name: "Storm Wolf".into(),
+            level: 2, element: Element::Jupiter,
+            hp: 52, pp: 11, atk: 11, def: 6, mag: 7, spd: 16,
+            abilities: vec![ea("strike"), ea("precise-jab"), ea("gust")],
+            base_xp: 18, base_gold: 9,
+        },
+
+        // ===== ENSLAVED BEASTS - Bears (4) =====
+        EnemyDefinition {
+            id: "venus-bear".into(), name: "Mountain Bear".into(),
+            level: 4, element: Element::Venus,
+            hp: 110, pp: 12, atk: 14, def: 18, mag: 6, spd: 8,
+            abilities: vec![ea("strike"), ea("heavy-strike"), ea("quake")],
+            base_xp: 35, base_gold: 18,
+        },
+        EnemyDefinition {
+            id: "mars-bear".into(), name: "Inferno Bear".into(),
+            level: 4, element: Element::Mars,
+            hp: 105, pp: 14, atk: 16, def: 16, mag: 8, spd: 9,
+            abilities: vec![ea("strike"), ea("heavy-strike"), ea("fireball")],
+            base_xp: 35, base_gold: 18,
+        },
+        EnemyDefinition {
+            id: "mercury-bear".into(), name: "Glacier Bear".into(),
+            level: 4, element: Element::Mercury,
+            hp: 115, pp: 13, atk: 13, def: 19, mag: 7, spd: 7,
+            abilities: vec![ea("strike"), ea("heavy-strike"), ea("ice-shard")],
+            base_xp: 35, base_gold: 18,
+        },
+        EnemyDefinition {
+            id: "jupiter-bear".into(), name: "Thunder Bear".into(),
+            level: 4, element: Element::Jupiter,
+            hp: 100, pp: 15, atk: 15, def: 15, mag: 10, spd: 12,
+            abilities: vec![ea("strike"), ea("heavy-strike"), ea("gust")],
+            base_xp: 35, base_gold: 18,
+        },
+
+        // ===== COUNTER-STRATEGY ENEMIES - Support Roles (7) =====
+        EnemyDefinition {
+            id: "frost-mystic".into(), name: "Frost Mystic".into(),
+            level: 2, element: Element::Mercury,
+            hp: 200, pp: 20, atk: 10, def: 8, mag: 12, spd: 11,
+            abilities: vec![ea("ice-shard"), ea("heal")],
+            base_xp: 22, base_gold: 12,
+        },
+        EnemyDefinition {
+            id: "gale-priest".into(), name: "Gale Priest".into(),
+            level: 2, element: Element::Jupiter,
+            hp: 180, pp: 22, atk: 8, def: 7, mag: 14, spd: 13,
+            abilities: vec![ea("gust"), ea("heal"), ea("blind")],
+            base_xp: 24, base_gold: 14,
+        },
+        EnemyDefinition {
+            id: "stone-guardian".into(), name: "Stone Guardian".into(),
+            level: 3, element: Element::Venus,
+            hp: 350, pp: 10, atk: 12, def: 20, mag: 5, spd: 6,
+            abilities: vec![ea("strike"), ea("guard-break"), ea("boost-def")],
+            base_xp: 30, base_gold: 16,
+        },
+        EnemyDefinition {
+            id: "ember-cleric".into(), name: "Ember Cleric".into(),
+            level: 3, element: Element::Mars,
+            hp: 190, pp: 18, atk: 9, def: 8, mag: 11, spd: 10,
+            abilities: vec![ea("fireball"), ea("heal")],
+            base_xp: 26, base_gold: 14,
+        },
+        EnemyDefinition {
+            id: "earth-shaman".into(), name: "Earth Shaman".into(),
+            level: 4, element: Element::Venus,
+            hp: 220, pp: 25, atk: 10, def: 14, mag: 16, spd: 9,
+            abilities: vec![ea("quake"), ea("boost-def"), ea("heal")],
+            base_xp: 45, base_gold: 22,
+        },
+        EnemyDefinition {
+            id: "tide-enchanter".into(), name: "Tide Enchanter".into(),
+            level: 4, element: Element::Mercury,
+            hp: 240, pp: 30, atk: 11, def: 13, mag: 18, spd: 10,
+            abilities: vec![ea("ice-shard"), ea("boost-def"), ea("heal")],
+            base_xp: 50, base_gold: 24,
+        },
+        EnemyDefinition {
+            id: "frost-oracle".into(), name: "Frost Oracle".into(),
+            level: 5, element: Element::Mercury,
+            hp: 200, pp: 35, atk: 10, def: 12, mag: 20, spd: 11,
+            abilities: vec![ea("freeze-blast"), ea("heal"), ea("party-heal")],
+            base_xp: 55, base_gold: 26,
+        },
+
+        // ===== SLAVERS - Tier 1 Scouts (4) =====
+        EnemyDefinition {
+            id: "earth-scout".into(), name: "Earth Scout".into(),
+            level: 1, element: Element::Venus,
+            hp: 50, pp: 10, atk: 9, def: 8, mag: 5, spd: 8,
+            abilities: vec![ea("strike"), ea("guard-break")],
+            base_xp: 15, base_gold: 10,
+        },
+        EnemyDefinition {
+            id: "flame-scout".into(), name: "Flame Scout".into(),
+            level: 1, element: Element::Mars,
+            hp: 45, pp: 12, atk: 10, def: 6, mag: 8, spd: 10,
+            abilities: vec![ea("strike"), ea("fireball")],
+            base_xp: 15, base_gold: 10,
+        },
+        EnemyDefinition {
+            id: "frost-scout".into(), name: "Frost Scout".into(),
+            level: 1, element: Element::Mercury,
+            hp: 48, pp: 11, atk: 8, def: 7, mag: 7, spd: 9,
+            abilities: vec![ea("strike"), ea("ice-shard")],
+            base_xp: 15, base_gold: 10,
+        },
+        EnemyDefinition {
+            id: "gale-scout".into(), name: "Gale Scout".into(),
+            level: 1, element: Element::Jupiter,
+            hp: 42, pp: 13, atk: 9, def: 6, mag: 9, spd: 12,
+            abilities: vec![ea("strike"), ea("gust")],
+            base_xp: 15, base_gold: 10,
+        },
+
+        // ===== SLAVERS - Tier 2 Soldiers (4) =====
+        EnemyDefinition {
+            id: "terra-soldier".into(), name: "Terra Soldier".into(),
+            level: 3, element: Element::Venus,
+            hp: 85, pp: 15, atk: 14, def: 13, mag: 7, spd: 9,
+            abilities: vec![ea("strike"), ea("heavy-strike"), ea("quake")],
+            base_xp: 28, base_gold: 16,
+        },
+        EnemyDefinition {
+            id: "blaze-soldier".into(), name: "Blaze Soldier".into(),
+            level: 3, element: Element::Mars,
+            hp: 75, pp: 18, atk: 15, def: 10, mag: 12, spd: 11,
+            abilities: vec![ea("strike"), ea("fireball"), ea("burn-touch")],
+            base_xp: 28, base_gold: 16,
+        },
+        EnemyDefinition {
+            id: "tide-soldier".into(), name: "Tide Soldier".into(),
+            level: 3, element: Element::Mercury,
+            hp: 80, pp: 16, atk: 12, def: 12, mag: 10, spd: 10,
+            abilities: vec![ea("strike"), ea("ice-shard"), ea("freeze-blast")],
+            base_xp: 28, base_gold: 16,
+        },
+        EnemyDefinition {
+            id: "wind-soldier".into(), name: "Wind Soldier".into(),
+            level: 3, element: Element::Jupiter,
+            hp: 70, pp: 20, atk: 13, def: 9, mag: 13, spd: 14,
+            abilities: vec![ea("strike"), ea("gust"), ea("blind")],
+            base_xp: 28, base_gold: 16,
+        },
+
+        // ===== SLAVERS - Tier 3 Captains (4) =====
+        EnemyDefinition {
+            id: "stone-captain".into(), name: "Stone Captain".into(),
+            level: 5, element: Element::Venus,
+            hp: 130, pp: 20, atk: 18, def: 18, mag: 10, spd: 10,
+            abilities: vec![ea("strike"), ea("heavy-strike"), ea("quake"), ea("boost-def")],
+            base_xp: 50, base_gold: 28,
+        },
+        EnemyDefinition {
+            id: "inferno-captain".into(), name: "Inferno Captain".into(),
+            level: 5, element: Element::Mars,
+            hp: 115, pp: 25, atk: 20, def: 14, mag: 16, spd: 12,
+            abilities: vec![ea("strike"), ea("fireball"), ea("burn-touch"), ea("boost-atk")],
+            base_xp: 50, base_gold: 28,
+        },
+        EnemyDefinition {
+            id: "glacier-captain".into(), name: "Glacier Captain".into(),
+            level: 5, element: Element::Mercury,
+            hp: 125, pp: 22, atk: 16, def: 16, mag: 14, spd: 11,
+            abilities: vec![ea("strike"), ea("ice-shard"), ea("freeze-blast"), ea("heal")],
+            base_xp: 50, base_gold: 28,
+        },
+        EnemyDefinition {
+            id: "thunder-captain".into(), name: "Thunder Captain".into(),
+            level: 5, element: Element::Jupiter,
+            hp: 110, pp: 28, atk: 17, def: 13, mag: 18, spd: 15,
+            abilities: vec![ea("strike"), ea("gust"), ea("paralyze-shock"), ea("blind")],
+            base_xp: 50, base_gold: 28,
+        },
+
+        // ===== SLAVERS - Tier 4 Commanders (4) =====
+        EnemyDefinition {
+            id: "mountain-commander".into(), name: "Mountain Commander".into(),
+            level: 7, element: Element::Venus,
+            hp: 180, pp: 28, atk: 22, def: 24, mag: 14, spd: 11,
+            abilities: vec![ea("strike"), ea("heavy-strike"), ea("quake"), ea("guard-break"), ea("boost-def")],
+            base_xp: 75, base_gold: 40,
+        },
+        EnemyDefinition {
+            id: "fire-commander".into(), name: "Fire Commander".into(),
+            level: 7, element: Element::Mars,
+            hp: 160, pp: 35, atk: 24, def: 18, mag: 22, spd: 13,
+            abilities: vec![ea("strike"), ea("fireball"), ea("burn-touch"), ea("boost-atk"), ea("weaken-def")],
+            base_xp: 75, base_gold: 40,
+        },
+        EnemyDefinition {
+            id: "storm-commander".into(), name: "Storm Commander".into(),
+            level: 7, element: Element::Mercury,
+            hp: 170, pp: 30, atk: 20, def: 20, mag: 20, spd: 12,
+            abilities: vec![ea("strike"), ea("ice-shard"), ea("freeze-blast"), ea("heal"), ea("boost-def")],
+            base_xp: 75, base_gold: 40,
+        },
+        EnemyDefinition {
+            id: "gale-commander".into(), name: "Gale Commander".into(),
+            level: 7, element: Element::Jupiter,
+            hp: 150, pp: 35, atk: 21, def: 16, mag: 24, spd: 16,
+            abilities: vec![ea("strike"), ea("gust"), ea("chain-lightning"), ea("blind"), ea("paralyze-shock")],
+            base_xp: 75, base_gold: 40,
+        },
+
+        // ===== SUPPORT ENEMIES - Heralds/Wardens (2) =====
+        EnemyDefinition {
+            id: "terra-warden".into(), name: "Terra Warden".into(),
+            level: 6, element: Element::Venus,
+            hp: 260, pp: 28, atk: 16, def: 16, mag: 14, spd: 9,
+            abilities: vec![ea("quake"), ea("boost-atk"), ea("boost-def"), ea("heal")],
+            base_xp: 58, base_gold: 28,
+        },
+        EnemyDefinition {
+            id: "flame-herald".into(), name: "Flame Herald".into(),
+            level: 7, element: Element::Mars,
+            hp: 220, pp: 32, atk: 18, def: 14, mag: 20, spd: 13,
+            abilities: vec![ea("fireball"), ea("boost-atk"), ea("weaken-def")],
+            base_xp: 70, base_gold: 35,
+        },
+
+        // ===== BOSSES (9) =====
+        EnemyDefinition {
+            id: "slaver-chief".into(), name: "Slaver Chief".into(),
+            level: 3, element: Element::Mars,
+            hp: 200, pp: 20, atk: 16, def: 12, mag: 10, spd: 11,
+            abilities: vec![ea("strike"), ea("heavy-strike"), ea("fireball"), ea("boost-atk")],
+            base_xp: 60, base_gold: 40,
+        },
+        EnemyDefinition {
+            id: "iron-warden".into(), name: "Iron Warden".into(),
+            level: 5, element: Element::Venus,
+            hp: 350, pp: 15, atk: 18, def: 28, mag: 8, spd: 7,
+            abilities: vec![ea("strike"), ea("guard-break"), ea("quake"), ea("boost-def")],
+            base_xp: 80, base_gold: 50,
+        },
+        EnemyDefinition {
+            id: "phoenix-lord".into(), name: "Phoenix Lord".into(),
+            level: 7, element: Element::Mars,
+            hp: 300, pp: 40, atk: 22, def: 16, mag: 28, spd: 14,
+            abilities: vec![ea("fireball"), ea("burn-touch"), ea("heal"), ea("boost-atk"), ea("flare")],
+            base_xp: 120, base_gold: 80,
+        },
+        EnemyDefinition {
+            id: "glacier-queen".into(), name: "Glacier Queen".into(),
+            level: 8, element: Element::Mercury,
+            hp: 320, pp: 50, atk: 18, def: 20, mag: 32, spd: 13,
+            abilities: vec![ea("ice-shard"), ea("freeze-blast"), ea("heal"), ea("party-heal")],
+            base_xp: 140, base_gold: 90,
+        },
+        EnemyDefinition {
+            id: "storm-tyrant".into(), name: "Storm Tyrant".into(),
+            level: 9, element: Element::Jupiter,
+            hp: 280, pp: 55, atk: 24, def: 18, mag: 35, spd: 20,
+            abilities: vec![ea("gust"), ea("chain-lightning"), ea("paralyze-shock"), ea("blind"), ea("boost-atk")],
+            base_xp: 160, base_gold: 100,
+        },
+        EnemyDefinition {
+            id: "earth-titan".into(), name: "Earth Titan".into(),
+            level: 10, element: Element::Venus,
+            hp: 500, pp: 30, atk: 30, def: 35, mag: 15, spd: 8,
+            abilities: vec![ea("strike"), ea("heavy-strike"), ea("quake"), ea("guard-break"), ea("boost-def")],
+            base_xp: 200, base_gold: 120,
+        },
+        EnemyDefinition {
+            id: "infernal-dragon".into(), name: "Infernal Dragon".into(),
+            level: 12, element: Element::Mars,
+            hp: 600, pp: 60, atk: 35, def: 25, mag: 40, spd: 16,
+            abilities: vec![ea("fireball"), ea("burn-touch"), ea("flare"), ea("boost-atk"), ea("weaken-def")],
+            base_xp: 250, base_gold: 150,
+        },
+        EnemyDefinition {
+            id: "leviathan".into(), name: "Leviathan".into(),
+            level: 14, element: Element::Mercury,
+            hp: 700, pp: 70, atk: 28, def: 30, mag: 45, spd: 12,
+            abilities: vec![ea("ice-shard"), ea("freeze-blast"), ea("heal"), ea("party-heal"), ea("boost-def")],
+            base_xp: 300, base_gold: 180,
+        },
+        EnemyDefinition {
+            id: "vale-overlord".into(), name: "Vale Overlord".into(),
+            level: 16, element: Element::Jupiter,
+            hp: 900, pp: 80, atk: 40, def: 32, mag: 50, spd: 22,
+            abilities: vec![ea("gust"), ea("chain-lightning"), ea("paralyze-shock"), ea("boost-atk"), ea("heal")],
+            base_xp: 500, base_gold: 300,
+        },
+    ];
+
+    for enemy in enemies {
+        m.insert(enemy.id.clone(), enemy);
+    }
+
+    m
+}
