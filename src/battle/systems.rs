@@ -9,7 +9,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use crate::battle::{ai, damage, djinn, rewards, status, turn_order, types::*};
-use crate::plugins::core_plugin::GameData;
+use crate::plugins::core_plugin::{GameData, Party};
 
 // ---------------------------------------------------------------------------
 // Resources
@@ -29,13 +29,16 @@ impl Default for BattleRng {
 // Battle enter / exit
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub fn battle_enter_system(
     mut commands: Commands,
     mut start_events: EventReader<StartBattleEvent>,
     mut battle_state: ResMut<BattleStateRes>,
     mut cmd_state: ResMut<CommandSelectState>,
     mut rng: ResMut<BattleRng>,
-    party_query: Query<&BattleUnit>,
+    party: Res<Party>,
+    game_data: Res<GameData>,
+    existing_party_units: Query<(Entity, &BattleUnit)>,
 ) {
     for event in start_events.read() {
         *battle_state = BattleStateRes {
@@ -44,11 +47,63 @@ pub fn battle_enter_system(
             ..Default::default()
         };
 
+        // Despawn any leftover party battle units from previous battles
+        for (entity, unit) in existing_party_units.iter() {
+            if unit.side == UnitSide::Player {
+                commands.entity(entity).despawn();
+            }
+        }
+
+        // Spawn enemy units
         for enemy in &event.enemy_units {
             commands.spawn(enemy.clone());
         }
 
-        let all_units: Vec<BattleUnit> = party_query
+        // Spawn party units from Party resource + GameData
+        let mut party_units = Vec::new();
+        for (idx, unit_id) in party.active.iter().enumerate() {
+            if let Some(def) = game_data.units.get(unit_id) {
+                let battle_unit = BattleUnit {
+                    id: idx as u32 + 1,
+                    name: def.name.clone(),
+                    side: UnitSide::Player,
+                    element: def.element,
+                    level: 1,
+                    hp: def.base_hp,
+                    max_hp: def.base_hp,
+                    pp: def.base_pp,
+                    max_pp: def.base_pp,
+                    atk: def.base_atk,
+                    def: def.base_def,
+                    mag: def.base_mag,
+                    spd: def.base_spd,
+                    luck: 5,
+                    status_effects: Vec::new(),
+                    ability_ids: def
+                        .abilities
+                        .iter()
+                        .filter(|a| a.unlock_level <= 1)
+                        .map(|a| a.ability_id.clone())
+                        .collect(),
+                    djinn_ids: Vec::new(),
+                    damage_taken: 0,
+                    damage_dealt: 0,
+                    xp: 0,
+                    growth_rates: GrowthRates {
+                        hp: def.growth.hp,
+                        pp: def.growth.pp,
+                        atk: def.growth.atk,
+                        def: def.growth.def,
+                        mag: def.growth.mag,
+                        spd: def.growth.spd,
+                    },
+                };
+                commands.spawn(battle_unit.clone());
+                party_units.push(battle_unit);
+            }
+        }
+
+        let all_units: Vec<BattleUnit> = party_units
             .iter()
             .cloned()
             .chain(event.enemy_units.iter().cloned())
@@ -56,10 +111,7 @@ pub fn battle_enter_system(
 
         battle_state.turn_order = turn_order::calculate_turn_order(&all_units, &mut rng.0);
 
-        let player_count = all_units
-            .iter()
-            .filter(|u| u.side == UnitSide::Player && u.is_alive())
-            .count();
+        let player_count = party_units.iter().filter(|u| u.is_alive()).count();
         *cmd_state = CommandSelectState {
             pending_actions: vec![None; player_count],
             ..Default::default()
@@ -200,7 +252,12 @@ pub fn command_select_system(
             if keyboard.just_pressed(KeyCode::Enter)
                 && let Some(target) = targets.get(cmd_state.cursor_index)
             {
-                let action = if let Some(ref aid) = cmd_state.selected_ability {
+                let action = if let Some(ref djinn_id) = cmd_state.selected_djinn {
+                    BattleAction::DjinnUnleash {
+                        djinn_id: djinn_id.clone(),
+                        target_id: target.id,
+                    }
+                } else if let Some(ref aid) = cmd_state.selected_ability {
                     BattleAction::Ability {
                         ability_id: aid.clone(),
                         target_id: target.id,
@@ -212,6 +269,7 @@ pub fn command_select_system(
                 };
                 set_pending_action(&mut cmd_state, action);
                 cmd_state.selected_ability = None;
+                cmd_state.selected_djinn = None;
             }
         }
         CommandMenu::DjinnSelect => {
@@ -247,6 +305,7 @@ pub fn command_select_system(
                 cmd_state.menu = CommandMenu::TopLevel;
                 cmd_state.cursor_index = 0;
             }
+            // Item selection is handled by the battle UI layer
         }
     }
 }
@@ -305,8 +364,19 @@ pub fn resolution_system(
     mut heal_events: EventWriter<HealEvent>,
     mut ko_events: EventWriter<UnitKoEvent>,
     mut djinn_state: ResMut<DjinnBattleRes>,
+    mut end_events: EventWriter<EndBattleEvent>,
     game_data: Res<GameData>,
 ) {
+    // Check for flee
+    if battle_state.fled {
+        end_events.send(EndBattleEvent {
+            victory: false,
+            rewards: None,
+            level_ups: vec![],
+        });
+        return;
+    }
+
     let idx = battle_state.current_actor_index;
 
     if idx >= battle_state.turn_order.len() {
@@ -412,7 +482,6 @@ pub fn resolution_system(
             let chance = rewards::flee_chance(avg_player_spd, avg_enemy_spd);
             if rng.0.r#gen::<f32>() < chance {
                 battle_state.fled = true;
-                next_phase.set(BattlePhase::Inactive);
             }
         }
         BattleAction::DjinnUnleash {
@@ -460,7 +529,20 @@ pub fn resolution_system(
                 }
             }
         }
-        BattleAction::Item { .. } => { /* stub */ }
+        BattleAction::Item {
+            item_id, target_id, ..
+        } => {
+            execute_item(
+                actor_id,
+                &item_id,
+                target_id,
+                &mut units,
+                &mut heal_events,
+                &mut damage_events,
+                &mut ko_events,
+                &game_data,
+            );
+        }
     }
 }
 
@@ -747,6 +829,90 @@ fn execute_ability(
                     _ => {}
                 }
             }
+        }
+    }
+}
+
+/// Execute an item usage in battle.
+#[allow(clippy::too_many_arguments)]
+fn execute_item(
+    user_id: u32,
+    item_id: &str,
+    target_id: u32,
+    units: &mut Query<&mut BattleUnit>,
+    heal_events: &mut EventWriter<HealEvent>,
+    damage_events: &mut EventWriter<DamageEvent>,
+    ko_events: &mut EventWriter<UnitKoEvent>,
+    game_data: &Res<GameData>,
+) {
+    let item = match game_data.items.get(item_id) {
+        Some(i) => i.clone(),
+        None => return,
+    };
+
+    let effect = &item.effect;
+
+    // Healing / Revive
+    if (effect.hp_restore > 0 || effect.pp_restore > 0 || effect.revive)
+        && let Some(mut target) = units.iter_mut().find(|u| u.id == target_id)
+    {
+        let was_ko = target.is_ko();
+
+        // Only allow using on KO targets if item revives
+        if was_ko && !effect.revive {
+            return;
+        }
+
+        if effect.revive && was_ko {
+            target.hp = 1; // Bring back to life first
+        }
+
+        if effect.hp_restore > 0 {
+            let heal = effect.hp_restore.min(target.max_hp - target.hp);
+            target.hp = (target.hp + effect.hp_restore).min(target.max_hp);
+            heal_events.send(HealEvent {
+                source_id: user_id,
+                target_id,
+                amount: heal,
+                revived: was_ko && target.is_alive(),
+            });
+        }
+
+        if effect.pp_restore > 0 {
+            target.pp = (target.pp + effect.pp_restore).min(target.max_pp);
+        }
+    }
+
+    // Status removal
+    if !effect.removes_status.is_empty()
+        && let Some(mut target) = units.iter_mut().find(|u| u.id == target_id)
+    {
+        for status_name in &effect.removes_status {
+            target.status_effects.retain(|se| {
+                let kind_name = format!("{:?}", se.kind()).to_lowercase();
+                kind_name != *status_name
+            });
+        }
+    }
+
+    // Damage items
+    if effect.damage_amount > 0
+        && let Some(mut target) = units.iter_mut().find(|u| u.id == target_id)
+    {
+        let result = damage::apply_damage_with_shields(&mut target, effect.damage_amount);
+        damage_events.send(DamageEvent {
+            attacker_id: user_id,
+            target_id,
+            damage: result.actual_damage,
+            element: effect.damage_element,
+            was_blocked: result.was_blocked,
+        });
+        if target.is_ko() {
+            ko_events.send(UnitKoEvent {
+                unit_id: target.id,
+                unit_name: target.name.clone(),
+                side: target.side,
+            });
         }
     }
 }

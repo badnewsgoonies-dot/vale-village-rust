@@ -14,6 +14,7 @@ use plugins::inventory::InventoryPlugin;
 use plugins::overworld::OverworldPlugin;
 use plugins::save::SavePlugin;
 use plugins::shop::ShopPlugin;
+use plugins::tower::TowerPlugin;
 use plugins::ui::UiPlugin;
 
 fn main() {
@@ -45,6 +46,7 @@ fn main() {
         .add_plugins(InventoryPlugin)
         .add_plugins(BattleUiPlugin)
         .add_plugins(BattlePlugin)
+        .add_plugins(TowerPlugin)
         // Default camera (used by UI screens; overworld spawns its own)
         .add_systems(Startup, setup_camera)
         .run();

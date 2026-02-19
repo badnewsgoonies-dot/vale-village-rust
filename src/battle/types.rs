@@ -362,6 +362,7 @@ pub struct StartBattleEvent {
 
 #[derive(Event, Debug, Clone)]
 pub struct EndBattleEvent {
+    #[allow(dead_code)]
     pub victory: bool,
     #[allow(dead_code)]
     pub rewards: Option<BattleRewards>,

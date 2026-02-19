@@ -7,7 +7,7 @@
 use bevy::prelude::*;
 use rand::Rng;
 
-use super::core_plugin::GameState;
+use super::core_plugin::{GameState, Party};
 use super::shop::CurrentShop;
 use super::ui::{ScreenTransition, start_transition};
 use crate::battle::types::{
@@ -24,11 +24,14 @@ const MAP_HEIGHT: i32 = 20;
 // Tile colors
 const GRASS: Color = Color::srgb(0.18, 0.42, 0.15);
 const GRASS_ALT: Color = Color::srgb(0.15, 0.38, 0.13);
+const TALL_GRASS: Color = Color::srgb(0.12, 0.34, 0.10);
+const TALL_GRASS_ALT: Color = Color::srgb(0.10, 0.30, 0.08);
 const PATH: Color = Color::srgb(0.55, 0.45, 0.3);
 const WATER: Color = Color::srgb(0.15, 0.25, 0.55);
 const WALL: Color = Color::srgb(0.35, 0.3, 0.25);
 const BUILDING: Color = Color::srgb(0.5, 0.35, 0.2);
 const DOOR: Color = Color::srgb(0.6, 0.45, 0.15);
+const TOWER_FLOOR: Color = Color::srgb(0.3, 0.25, 0.35);
 const PLAYER_COLOR: Color = Color::srgb(0.85, 0.65, 0.13);
 const NPC_COLOR: Color = Color::srgb(0.3, 0.5, 0.8);
 const NPC_ALT_COLOR: Color = Color::srgb(0.7, 0.4, 0.25);
@@ -59,6 +62,14 @@ struct DialogText;
 #[derive(Component)]
 struct DialogHintText;
 
+/// Marker for NPCs that heal the party when dialog finishes.
+#[derive(Component)]
+struct InnKeeperMarker;
+
+/// Marker for the tower entrance trigger tile.
+#[derive(Component)]
+pub struct TowerEntrance;
+
 // ── Resources ─────────────────────────────────────────────────────────
 
 #[derive(Resource, Debug, Default)]
@@ -71,8 +82,8 @@ struct DialogState {
 }
 
 #[derive(Resource, Debug, Default)]
-struct BattleReturnPosition {
-    player_position: Option<GridPosition>,
+pub struct BattleReturnPosition {
+    pub player_position: Option<GridPosition>,
 }
 
 /// Simple tile map for collision checking.
@@ -109,6 +120,14 @@ impl TileMap {
             return false;
         };
         self.encounter_zones[idx]
+    }
+
+    fn is_door(&self, x: i32, y: i32) -> bool {
+        self.get(x, y) == 5
+    }
+
+    fn is_tower_entrance(&self, x: i32, y: i32) -> bool {
+        self.get(x, y) == 6
     }
 }
 
@@ -198,6 +217,9 @@ fn generate_tile_map() -> TileMap {
     }
     tiles[(13 * MAP_WIDTH + 10) as usize] = 5; // door
 
+    // Tower entrance (north, at center of map top area)
+    tiles[(MAP_WIDTH + 15) as usize] = 6; // tower entrance tile
+
     // Fence / walls
     for x in 3..8 {
         tiles[(8 * MAP_WIDTH + x) as usize] = 2;
@@ -236,6 +258,35 @@ fn generate_tile_map() -> TileMap {
     }
 }
 
+// ── Door -> building mapping ──────────────────────────────────────────
+
+/// Determine what a door leads to based on its position.
+fn door_action(x: i32, y: i32) -> DoorAction {
+    // Shop door is at (5, 6)
+    if x == 5 && y == 6 {
+        return DoorAction::Shop;
+    }
+    // Inn door is at (22, 6)
+    if x == 22 && y == 6 {
+        return DoorAction::Inn;
+    }
+    // Elder's house door at (10, 13)
+    if x == 10 && y == 13 {
+        return DoorAction::Dialog(vec![
+            "You peer inside the Elder's house.".into(),
+            "It's quiet and warm inside.".into(),
+        ]);
+    }
+    DoorAction::None
+}
+
+enum DoorAction {
+    Shop,
+    Inn,
+    Dialog(Vec<String>),
+    None,
+}
+
 // ── Setup ─────────────────────────────────────────────────────────────
 
 fn setup_overworld(
@@ -262,9 +313,16 @@ fn setup_overworld(
     for y in 0..tilemap.height {
         for x in 0..tilemap.width {
             let tile = tilemap.get(x, y);
+            let is_encounter = tilemap.is_encounter_zone(x, y);
             let color = match tile {
                 0 => {
-                    if (x + y) % 2 == 0 {
+                    if is_encounter {
+                        if (x + y) % 2 == 0 {
+                            TALL_GRASS
+                        } else {
+                            TALL_GRASS_ALT
+                        }
+                    } else if (x + y) % 2 == 0 {
                         GRASS
                     } else {
                         GRASS_ALT
@@ -275,6 +333,7 @@ fn setup_overworld(
                 3 => WATER,
                 4 => BUILDING,
                 5 => DOOR,
+                6 => TOWER_FLOOR,
                 _ => GRASS,
             };
 
@@ -283,8 +342,11 @@ fn setup_overworld(
                 Sprite::from_color(color, Vec2::new(TILE_SIZE, TILE_SIZE)),
                 Transform::from_xyz(x as f32 * TILE_SIZE, -(y as f32) * TILE_SIZE, 0.0),
             ));
-            if tilemap.is_encounter_zone(x, y) {
+            if is_encounter {
                 tile_entity.insert(EncounterZone);
+            }
+            if tilemap.is_tower_entrance(x, y) {
+                tile_entity.insert(TowerEntrance);
             }
         }
     }
@@ -319,6 +381,7 @@ fn setup_overworld(
             "But also great treasure. Prepare yourself well.".into(),
         ],
         None,
+        false,
     );
     spawn_npc(
         &mut commands,
@@ -343,6 +406,7 @@ fn setup_overworld(
                 "short-bow".into(),
             ],
         }),
+        false,
     );
     spawn_npc(
         &mut commands,
@@ -351,14 +415,15 @@ fn setup_overworld(
         NPC_COLOR,
         vec![
             "Rest here to recover your strength.".into(),
-            "That'll be 20 gold. ...Just kidding, it's free for now!".into(),
+            "Your party has been fully healed!".into(),
         ],
         None,
+        true, // innkeeper heals party
     );
     spawn_npc(
         &mut commands,
         "Guard",
-        GridPosition::new(15, 5),
+        GridPosition::new(15, 3),
         NPC_ALT_COLOR,
         vec![
             "The path north leads to the Corrupted Tower.".into(),
@@ -366,6 +431,7 @@ fn setup_overworld(
             "Make sure you have Djinn equipped before you go!".into(),
         ],
         None,
+        false,
     );
 
     // Dialog UI (hidden initially)
@@ -425,6 +491,7 @@ fn spawn_npc(
     color: Color,
     dialog: Vec<String>,
     shopkeeper: Option<ShopKeeper>,
+    is_innkeeper: bool,
 ) {
     let mut npc = commands.spawn((
         OverworldRoot,
@@ -439,6 +506,9 @@ fn spawn_npc(
 
     if let Some(shopkeeper) = shopkeeper {
         npc.insert(shopkeeper);
+    }
+    if is_innkeeper {
+        npc.insert(InnKeeperMarker);
     }
 }
 
@@ -499,6 +569,14 @@ fn player_movement(
                 transform.translation.y = -(ny as f32) * TILE_SIZE;
                 movement.move_cooldown.reset();
 
+                // Tower entrance
+                if tilemap.is_tower_entrance(nx, ny) {
+                    return_position.player_position = Some(*grid_pos);
+                    next_game_state.set(GameState::Tower);
+                    break;
+                }
+
+                // Encounter zone check
                 if tilemap.is_encounter_zone(nx, ny) {
                     let mut rng = rand::thread_rng();
                     if rng.gen_bool(ENCOUNTER_CHANCE) {
@@ -528,6 +606,13 @@ fn build_random_encounter(rng: &mut impl Rng) -> Vec<BattleUnit> {
         return Vec::new();
     }
 
+    // Only pick low-level enemies for overworld encounters (levels 1-5)
+    all_enemies.retain(|e| e.level <= 5);
+    if all_enemies.is_empty() {
+        // Fallback to all enemies if no low-level ones
+        all_enemies = enemies::build_enemy_registry().into_values().collect();
+    }
+
     let encounter_count = rng
         .gen_range(MIN_ENCOUNTER_ENEMIES..=MAX_ENCOUNTER_ENEMIES)
         .min(all_enemies.len());
@@ -545,7 +630,7 @@ fn build_random_encounter(rng: &mut impl Rng) -> Vec<BattleUnit> {
     enemies_for_battle
 }
 
-fn enemy_definition_to_battle_unit(definition: &EnemyDefinition, id: u32) -> BattleUnit {
+pub fn enemy_definition_to_battle_unit(definition: &EnemyDefinition, id: u32) -> BattleUnit {
     BattleUnit {
         id,
         name: definition.name.clone(),
@@ -594,9 +679,13 @@ fn camera_follow_player(
     cam_tf.translation = cam_tf.translation.lerp(target, 0.1);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn player_interact(
     keys: Res<ButtonInput<KeyCode>>,
     mut dialog: ResMut<DialogState>,
+    tilemap: Res<TileMap>,
+    mut current_shop: ResMut<CurrentShop>,
+    mut next_game_state: ResMut<NextState<GameState>>,
     player_query: Query<(&GridPosition, &PlayerMovement), With<Player>>,
     npc_query: Query<(Entity, &GridPosition, &Npc)>,
     mut dialog_box: Query<&mut Visibility, With<DialogBox>>,
@@ -621,6 +710,7 @@ fn player_interact(
     };
     let face = GridPosition::new(player_pos.x + fx, player_pos.y + fy);
 
+    // Check NPC interaction first
     for (npc_entity, npc_pos, npc) in &npc_query {
         if *npc_pos == face {
             dialog.active = true;
@@ -635,17 +725,78 @@ fn player_interact(
             if let Ok(mut text) = dialog_text.get_single_mut() {
                 **text = format!("{}: {}", dialog.speaker, dialog.lines[0]);
             }
-            break;
+            return;
+        }
+    }
+
+    // Check door interaction (facing a door tile)
+    if tilemap.is_door(face.x, face.y) {
+        match door_action(face.x, face.y) {
+            DoorAction::Shop => {
+                current_shop.items = vec![
+                    "potion".into(),
+                    "antidote".into(),
+                    "jupiter-hermes-water".into(),
+                    "mercury-mist-elixir".into(),
+                    "revive-stone".into(),
+                ];
+                current_shop.equipment = vec![
+                    "wooden-sword".into(),
+                    "wooden-axe".into(),
+                    "wooden-staff".into(),
+                    "short-bow".into(),
+                    "leather-armor".into(),
+                    "lucky-charm".into(),
+                ];
+                next_game_state.set(GameState::Shop);
+            }
+            DoorAction::Inn => {
+                dialog.active = true;
+                dialog.speaker = "Inn".into();
+                dialog.lines = vec![
+                    "You rest at the inn...".into(),
+                    "Your party has been fully healed!".into(),
+                ];
+                dialog.current_line = 0;
+                dialog.speaker_entity = None;
+
+                if let Ok(mut vis) = dialog_box.get_single_mut() {
+                    *vis = Visibility::Visible;
+                }
+                if let Ok(mut text) = dialog_text.get_single_mut() {
+                    **text = format!("{}: {}", dialog.speaker, dialog.lines[0]);
+                }
+            }
+            DoorAction::Dialog(lines) => {
+                dialog.active = true;
+                dialog.speaker = "".into();
+                dialog.lines = lines;
+                dialog.current_line = 0;
+                dialog.speaker_entity = None;
+
+                if let Ok(mut vis) = dialog_box.get_single_mut() {
+                    *vis = Visibility::Visible;
+                }
+                if let Ok(mut text) = dialog_text.get_single_mut() {
+                    let line = &dialog.lines[0];
+                    **text = line.clone();
+                }
+            }
+            DoorAction::None => {}
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn dialog_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut dialog: ResMut<DialogState>,
     shopkeepers: Query<&ShopKeeper>,
+    innkeepers: Query<&InnKeeperMarker>,
     mut current_shop: ResMut<CurrentShop>,
     mut next_game_state: ResMut<NextState<GameState>>,
+    party: Res<Party>,
+    mut battle_units: Query<&mut BattleUnit>,
     mut dialog_box: Query<&mut Visibility, With<DialogBox>>,
     mut dialog_text: Query<&mut Text, With<DialogText>>,
 ) {
@@ -661,6 +812,28 @@ fn dialog_input(
             if let Ok(mut vis) = dialog_box.get_single_mut() {
                 *vis = Visibility::Hidden;
             }
+
+            // Check for innkeeper or inn door — heal party
+            let is_innkeeper = dialog
+                .speaker_entity
+                .map(|e| innkeepers.get(e).is_ok())
+                .unwrap_or(false);
+            let is_inn_dialog = dialog.speaker == "Inn";
+
+            if is_innkeeper || is_inn_dialog {
+                // Heal all party battle units
+                for mut unit in &mut battle_units {
+                    if unit.side == UnitSide::Player {
+                        unit.hp = unit.max_hp;
+                        unit.pp = unit.max_pp;
+                        unit.status_effects.clear();
+                    }
+                }
+                // Update gold (free for now)
+                let _ = &party.gold;
+            }
+
+            // Check for shopkeeper — open shop
             if let Some(npc_entity) = dialog.speaker_entity.take()
                 && let Ok(shopkeeper) = shopkeepers.get(npc_entity)
             {
@@ -669,7 +842,12 @@ fn dialog_input(
                 next_game_state.set(GameState::Shop);
             }
         } else if let Ok(mut text) = dialog_text.get_single_mut() {
-            **text = format!("{}: {}", dialog.speaker, dialog.lines[dialog.current_line]);
+            let prefix = if dialog.speaker.is_empty() {
+                String::new()
+            } else {
+                format!("{}: ", dialog.speaker)
+            };
+            **text = format!("{prefix}{}", dialog.lines[dialog.current_line]);
         }
     }
 }
@@ -703,11 +881,9 @@ fn handle_battle_end(
     mut next_game_state: ResMut<NextState<GameState>>,
     mut next_battle_phase: ResMut<NextState<BattlePhase>>,
 ) {
-    for event in end_events.read() {
-        if event.victory {
-            next_battle_phase.set(BattlePhase::Inactive);
-            next_game_state.set(GameState::Overworld);
-            break;
-        }
+    if let Some(_event) = end_events.read().next() {
+        // Whether victory, defeat, or flee — return to overworld
+        next_battle_phase.set(BattlePhase::Inactive);
+        next_game_state.set(GameState::Overworld);
     }
 }

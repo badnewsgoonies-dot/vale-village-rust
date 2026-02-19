@@ -332,66 +332,107 @@ fn title_pulse_animation(time: Res<Time>, mut query: Query<&mut TextColor, With<
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn main_menu_input(
-    keys: Res<ButtonInput<KeyCode>>,
-    time: Res<Time>,
-    mut cursor: ResMut<MenuCursor>,
-    mut transition: ResMut<ScreenTransition>,
-    mut app_exit: EventWriter<AppExit>,
-    items: Query<(&MainMenuItem, &Children, Entity)>,
-    mut bg_query: Query<(&mut BackgroundColor, &mut BorderColor)>,
-    mut text_query: Query<&mut TextColor>,
-) {
-    if transition.active {
+fn main_menu_input(world: &mut World) {
+    if world.resource::<ScreenTransition>().active {
         return;
     }
 
-    cursor.cooldown.tick(time.delta());
+    let delta = world.resource::<Time>().delta();
+    let (up_pressed, down_pressed, confirm_pressed) = {
+        let keys = world.resource::<ButtonInput<KeyCode>>();
+        (
+            keys.just_pressed(KeyCode::ArrowUp) || keys.just_pressed(KeyCode::KeyW),
+            keys.just_pressed(KeyCode::ArrowDown) || keys.just_pressed(KeyCode::KeyS),
+            keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space),
+        )
+    };
 
-    if cursor.cooldown.finished() {
-        if keys.just_pressed(KeyCode::ArrowUp) || keys.just_pressed(KeyCode::KeyW) {
-            cursor.selected = if cursor.selected == 0 {
-                cursor.count - 1
-            } else {
-                cursor.selected - 1
-            };
-            cursor.cooldown.reset();
-        }
-        if keys.just_pressed(KeyCode::ArrowDown) || keys.just_pressed(KeyCode::KeyS) {
-            cursor.selected = (cursor.selected + 1) % cursor.count;
-            cursor.cooldown.reset();
+    {
+        let mut cursor = world.resource_mut::<MenuCursor>();
+        cursor.cooldown.tick(delta);
+
+        if cursor.cooldown.finished() {
+            if up_pressed {
+                cursor.selected = if cursor.selected == 0 {
+                    cursor.count - 1
+                } else {
+                    cursor.selected - 1
+                };
+                cursor.cooldown.reset();
+            }
+            if down_pressed {
+                cursor.selected = (cursor.selected + 1) % cursor.count;
+                cursor.cooldown.reset();
+            }
         }
     }
+
+    let selected = world.resource::<MenuCursor>().selected;
 
     // Update visuals
-    for (item, children, entity) in &items {
-        let is_sel = item.index == cursor.selected;
+    {
+        let mut items = world.query::<(&MainMenuItem, &Children, Entity)>();
+        let item_data: Vec<(usize, Vec<Entity>, Entity)> = items
+            .iter(world)
+            .map(|(item, children, entity)| {
+                (item.index, children.iter().copied().collect(), entity)
+            })
+            .collect();
 
-        // Update item background/border
-        if let Ok((mut bg, mut border)) = bg_query.get_mut(entity) {
-            *bg = BackgroundColor(if is_sel { SELECTED_BG } else { Color::NONE });
-            *border = BorderColor(if is_sel { GOLD } else { Color::NONE });
-        }
-
-        // Update child text color
-        for &child in children.iter() {
-            if let Ok(mut tc) = text_query.get_mut(child) {
-                tc.0 = if is_sel { BRIGHT_GOLD } else { DIM_TEXT };
+        for (index, children, entity) in &item_data {
+            let is_sel = *index == selected;
+            if let Some(mut bg) = world.get_mut::<BackgroundColor>(*entity) {
+                *bg = BackgroundColor(if is_sel { SELECTED_BG } else { Color::NONE });
+            }
+            if let Some(mut border) = world.get_mut::<BorderColor>(*entity) {
+                *border = BorderColor(if is_sel { GOLD } else { Color::NONE });
+            }
+            for child in children {
+                if let Some(mut tc) = world.get_mut::<TextColor>(*child) {
+                    tc.0 = if is_sel { BRIGHT_GOLD } else { DIM_TEXT };
+                }
             }
         }
     }
 
-    if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) {
-        match cursor.selected {
-            0 => start_transition(&mut transition, GameState::Overworld), // New Game
-            1 => start_transition(&mut transition, GameState::Overworld), // Continue (stub)
-            2 => start_transition(&mut transition, GameState::Settings),
-            3 => {
-                app_exit.send(AppExit::Success);
-            }
-            _ => {}
+    if !confirm_pressed {
+        return;
+    }
+
+    match selected {
+        0 => {
+            // New Game
+            let mut transition = world.resource_mut::<ScreenTransition>();
+            start_transition(&mut transition, GameState::Overworld);
         }
+        1 => {
+            // Continue - load from slot 1
+            let result = {
+                let save_system = world.resource::<SaveSystem>();
+                save_system.load(1)
+            };
+
+            match result {
+                Ok(save_data) => {
+                    save_data.apply_to_game(world);
+                    let mut transition = world.resource_mut::<ScreenTransition>();
+                    start_transition(&mut transition, GameState::Overworld);
+                }
+                Err(_) => {
+                    // No save found, just start new game
+                    let mut transition = world.resource_mut::<ScreenTransition>();
+                    start_transition(&mut transition, GameState::Overworld);
+                }
+            }
+        }
+        2 => {
+            let mut transition = world.resource_mut::<ScreenTransition>();
+            start_transition(&mut transition, GameState::Settings);
+        }
+        3 => {
+            world.send_event(AppExit::Success);
+        }
+        _ => {}
     }
 }
 
