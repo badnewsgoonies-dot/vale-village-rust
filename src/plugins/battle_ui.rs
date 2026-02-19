@@ -1,15 +1,17 @@
 //! Battle UI: enemy/party displays, HP/PP bars, action menu, target selection,
 //! damage numbers, turn order bar.
 //!
-//! This is the VISUAL layer only. It reads from placeholder `BattleEnemies` and
-//! `BattleParty` resources. When the real battle system (src/battle/) is
-//! integrated, these resources should be replaced by queries on `BattleUnit`.
+//! This is the VISUAL layer only. It mirrors live `BattleUnit` ECS data into
+//! lightweight UI-side caches and renders from those caches.
 
 use bevy::prelude::*;
 
 use crate::components::stats::Element;
+use crate::battle::types::{
+    BattleAction, BattlePhase, BattleStateRes, BattleUnit, CommandMenu, CommandSelectState,
+    UnitSide,
+};
 use super::core_plugin::GameState;
-use super::ui::{start_transition, ScreenTransition};
 
 // ── Colors ────────────────────────────────────────────────────────────
 const BATTLE_BG: Color = Color::srgb(0.06, 0.06, 0.14);
@@ -59,6 +61,21 @@ struct BattleMessageText;
 struct TurnOrderDisplay;
 
 #[derive(Component)]
+struct TurnOrderText;
+
+#[derive(Component)]
+struct EnemyArea;
+
+#[derive(Component)]
+struct PartyArea;
+
+#[derive(Component)]
+struct EnemyPanelRoot;
+
+#[derive(Component)]
+struct PartyPanelRoot;
+
+#[derive(Component)]
 struct DamageNumber { lifetime: Timer, velocity: Vec2 }
 
 #[derive(Component)]
@@ -98,9 +115,10 @@ impl Default for BattleUiState {
     }
 }
 
-/// Placeholder battle unit for the UI layer.
-#[derive(Debug, Clone)]
+/// UI-facing snapshot derived from a `BattleUnit` component.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BattleDisplayUnit {
+    pub id: u32,
     pub name: String,
     pub hp: i32,
     pub max_hp: i32,
@@ -110,10 +128,25 @@ pub struct BattleDisplayUnit {
     pub alive: bool,
 }
 
-#[derive(Resource, Debug)]
+impl From<&BattleUnit> for BattleDisplayUnit {
+    fn from(unit: &BattleUnit) -> Self {
+        Self {
+            id: unit.id,
+            name: unit.name.clone(),
+            hp: unit.hp,
+            max_hp: unit.max_hp,
+            pp: unit.pp,
+            max_pp: unit.max_pp,
+            element: unit.element,
+            alive: unit.is_alive(),
+        }
+    }
+}
+
+#[derive(Resource, Debug, Default)]
 struct BattleEnemies { enemies: Vec<BattleDisplayUnit> }
 
-#[derive(Resource, Debug)]
+#[derive(Resource, Debug, Default)]
 struct BattleParty { members: Vec<BattleDisplayUnit> }
 
 const ACTION_LABELS: &[&str] = &["Fight", "Djinn", "Item", "Defend", "Flee"];
@@ -128,12 +161,16 @@ impl Plugin for BattleUiPlugin {
             .add_systems(
                 Update,
                 (
+                    sync_battle_display,
+                    rebuild_battle_unit_panels,
                     battle_action_input,
                     battle_target_input,
                     update_hp_bars,
+                    update_turn_order_display,
                     update_damage_numbers,
                     update_battle_message,
                 )
+                    .chain()
                     .run_if(in_state(GameState::Battle)),
             )
             .add_systems(OnExit(GameState::Battle), cleanup_battle);
@@ -155,23 +192,9 @@ fn element_color(el: &Element) -> Color {
 // ── Setup ─────────────────────────────────────────────────────────────
 
 fn setup_battle_ui(mut commands: Commands) {
-    let enemies = BattleEnemies {
-        enemies: vec![
-            BattleDisplayUnit { name: "Slime".into(), hp: 45, max_hp: 45, pp: 0, max_pp: 0, element: Element::Mercury, alive: true },
-            BattleDisplayUnit { name: "Goblin".into(), hp: 60, max_hp: 60, pp: 10, max_pp: 10, element: Element::Venus, alive: true },
-            BattleDisplayUnit { name: "Bat".into(), hp: 30, max_hp: 30, pp: 5, max_pp: 5, element: Element::Jupiter, alive: true },
-        ],
-    };
-    let party = BattleParty {
-        members: vec![
-            BattleDisplayUnit { name: "Adept".into(), hp: 120, max_hp: 120, pp: 40, max_pp: 40, element: Element::Venus, alive: true },
-            BattleDisplayUnit { name: "War Mage".into(), hp: 95, max_hp: 95, pp: 30, max_pp: 30, element: Element::Mars, alive: true },
-            BattleDisplayUnit { name: "Mystic".into(), hp: 80, max_hp: 80, pp: 60, max_pp: 60, element: Element::Mercury, alive: true },
-            BattleDisplayUnit { name: "Ranger".into(), hp: 100, max_hp: 100, pp: 35, max_pp: 35, element: Element::Jupiter, alive: true },
-        ],
-    };
-
     commands.insert_resource(BattleUiState::default());
+    commands.insert_resource(BattleEnemies::default());
+    commands.insert_resource(BattleParty::default());
 
     commands
         .spawn((
@@ -200,82 +223,25 @@ fn setup_battle_ui(mut commands: Commands) {
             ))
             .with_children(|bar| {
                 bar.spawn((
-                    Text::new("Turn: Adept > Ranger > Goblin > Mystic > War Mage > Bat > Slime"),
+                    TurnOrderText,
+                    Text::new("Turn: --"),
                     TextFont { font_size: 13.0, ..default() },
                     TextColor(DIM_TEXT),
                 ));
             });
 
             // ── Enemy area ───────────────────────────────────
-            root.spawn(Node {
-                width: Val::Percent(100.0),
-                height: Val::Percent(35.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                column_gap: Val::Px(40.0),
-                ..default()
-            })
-            .with_children(|area| {
-                for (i, enemy) in enemies.enemies.iter().enumerate() {
-                    area.spawn(Node {
-                        flex_direction: FlexDirection::Column,
-                        align_items: AlignItems::Center,
-                        ..default()
-                    })
-                    .with_children(|col| {
-                        // Target indicator (hidden by default)
-                        col.spawn((
-                            EnemyTargetIndicator { index: i },
-                            Text::new("v"),
-                            TextFont { font_size: 18.0, ..default() },
-                            TextColor(Color::NONE),
-                            Node { margin: UiRect::bottom(Val::Px(2.0)), ..default() },
-                        ));
-
-                        // Sprite placeholder
-                        col.spawn((
-                            EnemyDisplay { index: i },
-                            Node {
-                                width: Val::Px(64.0),
-                                height: Val::Px(64.0),
-                                margin: UiRect::bottom(Val::Px(8.0)),
-                                ..default()
-                            },
-                            BackgroundColor(element_color(&enemy.element)),
-                        ));
-
-                        // Name
-                        col.spawn((
-                            Text::new(&enemy.name),
-                            TextFont { font_size: 16.0, ..default() },
-                            TextColor(Color::WHITE),
-                        ));
-
-                        // HP bar
-                        col.spawn((
-                            Node {
-                                width: Val::Px(80.0),
-                                height: Val::Px(8.0),
-                                margin: UiRect::top(Val::Px(4.0)),
-                                ..default()
-                            },
-                            BackgroundColor(HP_BAR_BG),
-                        ))
-                        .with_child((
-                            HpBar { unit_index: i, is_enemy: true },
-                            Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
-                            BackgroundColor(HP_GREEN),
-                        ));
-
-                        col.spawn((
-                            HpText { index: i, is_enemy: true },
-                            Text::new(format!("{}/{}", enemy.hp, enemy.max_hp)),
-                            TextFont { font_size: 12.0, ..default() },
-                            TextColor(Color::srgb(0.8, 0.8, 0.8)),
-                        ));
-                    });
-                }
-            });
+            root.spawn((
+                EnemyArea,
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(35.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    column_gap: Val::Px(40.0),
+                    ..default()
+                },
+            ));
 
             // ── Message area ─────────────────────────────────
             root.spawn(Node {
@@ -295,68 +261,18 @@ fn setup_battle_ui(mut commands: Commands) {
             });
 
             // ── Party area ───────────────────────────────────
-            root.spawn(Node {
-                width: Val::Percent(100.0),
-                height: Val::Percent(25.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                column_gap: Val::Px(30.0),
-                padding: UiRect::horizontal(Val::Px(20.0)),
-                ..default()
-            })
-            .with_children(|area| {
-                for (i, member) in party.members.iter().enumerate() {
-                    area.spawn(Node {
-                        flex_direction: FlexDirection::Column,
-                        align_items: AlignItems::Center,
-                        min_width: Val::Px(120.0),
-                        ..default()
-                    })
-                    .with_children(|col| {
-                        col.spawn((
-                            Text::new(&member.name),
-                            TextFont { font_size: 16.0, ..default() },
-                            TextColor(GOLD_TEXT),
-                        ));
-
-                        // HP
-                        col.spawn((
-                            Node { width: Val::Px(100.0), height: Val::Px(10.0), margin: UiRect::top(Val::Px(4.0)), ..default() },
-                            BackgroundColor(HP_BAR_BG),
-                        ))
-                        .with_child((
-                            HpBar { unit_index: i, is_enemy: false },
-                            Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
-                            BackgroundColor(HP_GREEN),
-                        ));
-
-                        col.spawn((
-                            HpText { index: i, is_enemy: false },
-                            Text::new(format!("HP {}/{}", member.hp, member.max_hp)),
-                            TextFont { font_size: 12.0, ..default() },
-                            TextColor(Color::srgb(0.7, 0.9, 0.7)),
-                        ));
-
-                        // PP
-                        col.spawn((
-                            Node { width: Val::Px(100.0), height: Val::Px(6.0), margin: UiRect::top(Val::Px(2.0)), ..default() },
-                            BackgroundColor(PP_BAR_BG),
-                        ))
-                        .with_child((
-                            PpBar { unit_index: i },
-                            Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
-                            BackgroundColor(PP_BLUE),
-                        ));
-
-                        col.spawn((
-                            PpText { index: i },
-                            Text::new(format!("PP {}/{}", member.pp, member.max_pp)),
-                            TextFont { font_size: 11.0, ..default() },
-                            TextColor(Color::srgb(0.6, 0.7, 0.9)),
-                        ));
-                    });
-                }
-            });
+            root.spawn((
+                PartyArea,
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(25.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    column_gap: Val::Px(30.0),
+                    padding: UiRect::horizontal(Val::Px(20.0)),
+                    ..default()
+                },
+            ));
 
             // ── Action menu ──────────────────────────────────
             root.spawn((
@@ -400,18 +316,219 @@ fn setup_battle_ui(mut commands: Commands) {
                 }
             });
         });
-
-    commands.insert_resource(enemies);
-    commands.insert_resource(party);
 }
 
 // ── Systems ───────────────────────────────────────────────────────────
+
+fn sync_battle_display(
+    units: Query<&BattleUnit>,
+    mut enemies: ResMut<BattleEnemies>,
+    mut party: ResMut<BattleParty>,
+) {
+    let mut next_enemies: Vec<BattleDisplayUnit> = units
+        .iter()
+        .filter(|u| u.side == UnitSide::Enemy)
+        .map(BattleDisplayUnit::from)
+        .collect();
+    next_enemies.sort_by_key(|u| u.id);
+
+    let mut next_party: Vec<BattleDisplayUnit> = units
+        .iter()
+        .filter(|u| u.side == UnitSide::Player)
+        .map(BattleDisplayUnit::from)
+        .collect();
+    next_party.sort_by_key(|u| u.id);
+
+    if enemies.enemies != next_enemies {
+        enemies.enemies = next_enemies;
+    }
+    if party.members != next_party {
+        party.members = next_party;
+    }
+}
+
+fn rebuild_battle_unit_panels(
+    mut commands: Commands,
+    enemies: Res<BattleEnemies>,
+    party: Res<BattleParty>,
+    enemy_areas: Query<Entity, With<EnemyArea>>,
+    party_areas: Query<Entity, With<PartyArea>>,
+    enemy_panels: Query<Entity, With<EnemyPanelRoot>>,
+    party_panels: Query<Entity, With<PartyPanelRoot>>,
+) {
+    if !enemies.is_changed() && !party.is_changed() {
+        return;
+    }
+
+    for entity in &enemy_panels {
+        commands.entity(entity).despawn_recursive();
+    }
+    for entity in &party_panels {
+        commands.entity(entity).despawn_recursive();
+    }
+
+    let Ok(enemy_area) = enemy_areas.get_single() else {
+        return;
+    };
+    commands.entity(enemy_area).with_children(|area| {
+        for (i, enemy) in enemies.enemies.iter().enumerate() {
+            area.spawn((
+                EnemyPanelRoot,
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+            ))
+            .with_children(|col| {
+                // Target indicator (hidden by default)
+                col.spawn((
+                    EnemyTargetIndicator { index: i },
+                    Text::new("v"),
+                    TextFont { font_size: 18.0, ..default() },
+                    TextColor(Color::NONE),
+                    Node { margin: UiRect::bottom(Val::Px(2.0)), ..default() },
+                ));
+
+                // Sprite placeholder
+                col.spawn((
+                    EnemyDisplay { index: i },
+                    Node {
+                        width: Val::Px(64.0),
+                        height: Val::Px(64.0),
+                        margin: UiRect::bottom(Val::Px(8.0)),
+                        ..default()
+                    },
+                    BackgroundColor(element_color(&enemy.element)),
+                ));
+
+                // Name
+                col.spawn((
+                    Text::new(&enemy.name),
+                    TextFont { font_size: 16.0, ..default() },
+                    TextColor(Color::WHITE),
+                ));
+
+                // HP bar
+                col.spawn((
+                    Node {
+                        width: Val::Px(80.0),
+                        height: Val::Px(8.0),
+                        margin: UiRect::top(Val::Px(4.0)),
+                        ..default()
+                    },
+                    BackgroundColor(HP_BAR_BG),
+                ))
+                .with_child((
+                    HpBar { unit_index: i, is_enemy: true },
+                    Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
+                    BackgroundColor(HP_GREEN),
+                ));
+
+                col.spawn((
+                    HpText { index: i, is_enemy: true },
+                    Text::new(format!("{}/{}", enemy.hp, enemy.max_hp)),
+                    TextFont { font_size: 12.0, ..default() },
+                    TextColor(Color::srgb(0.8, 0.8, 0.8)),
+                ));
+            });
+        }
+    });
+
+    let Ok(party_area) = party_areas.get_single() else {
+        return;
+    };
+    commands.entity(party_area).with_children(|area| {
+        for (i, member) in party.members.iter().enumerate() {
+            area.spawn((
+                PartyPanelRoot,
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    min_width: Val::Px(120.0),
+                    ..default()
+                },
+            ))
+            .with_children(|col| {
+                col.spawn((
+                    PartyDisplay { index: i },
+                    Text::new(&member.name),
+                    TextFont { font_size: 16.0, ..default() },
+                    TextColor(GOLD_TEXT),
+                ));
+
+                // HP
+                col.spawn((
+                    Node {
+                        width: Val::Px(100.0),
+                        height: Val::Px(10.0),
+                        margin: UiRect::top(Val::Px(4.0)),
+                        ..default()
+                    },
+                    BackgroundColor(HP_BAR_BG),
+                ))
+                .with_child((
+                    HpBar { unit_index: i, is_enemy: false },
+                    Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
+                    BackgroundColor(HP_GREEN),
+                ));
+
+                col.spawn((
+                    HpText { index: i, is_enemy: false },
+                    Text::new(format!("HP {}/{}", member.hp, member.max_hp)),
+                    TextFont { font_size: 12.0, ..default() },
+                    TextColor(Color::srgb(0.7, 0.9, 0.7)),
+                ));
+
+                // PP
+                col.spawn((
+                    Node {
+                        width: Val::Px(100.0),
+                        height: Val::Px(6.0),
+                        margin: UiRect::top(Val::Px(2.0)),
+                        ..default()
+                    },
+                    BackgroundColor(PP_BAR_BG),
+                ))
+                .with_child((
+                    PpBar { unit_index: i },
+                    Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
+                    BackgroundColor(PP_BLUE),
+                ));
+
+                col.spawn((
+                    PpText { index: i },
+                    Text::new(format!("PP {}/{}", member.pp, member.max_pp)),
+                    TextFont { font_size: 11.0, ..default() },
+                    TextColor(Color::srgb(0.6, 0.7, 0.9)),
+                ));
+            });
+        }
+    });
+}
+
+fn push_pending_action(cmd_state: &mut CommandSelectState, action: BattleAction) -> bool {
+    let idx = cmd_state.selecting_unit_index;
+    if idx < cmd_state.pending_actions.len() {
+        cmd_state.pending_actions[idx] = Some(action);
+        cmd_state.selecting_unit_index += 1;
+        cmd_state.menu = CommandMenu::ItemSelect;
+        cmd_state.cursor_index = 0;
+        cmd_state.selected_ability = None;
+        cmd_state.selected_djinn = None;
+        true
+    } else {
+        false
+    }
+}
 
 fn battle_action_input(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     mut ui_state: ResMut<BattleUiState>,
-    mut transition: ResMut<ScreenTransition>,
+    enemies: Res<BattleEnemies>,
+    battle_phase: Res<State<BattlePhase>>,
+    mut cmd_state: ResMut<CommandSelectState>,
     items: Query<(&ActionMenuItem, &Children, Entity)>,
     mut bg_query: Query<(&mut BackgroundColor, &mut BorderColor)>,
     mut text_query: Query<&mut TextColor>,
@@ -420,6 +537,12 @@ fn battle_action_input(
     if ui_state.phase != BattleUiPhase::ActionSelect {
         return;
     }
+    if *battle_phase.get() != BattlePhase::CommandSelect {
+        return;
+    }
+    // Keep the core command-state menu in a neutral branch so this UI owns command entry.
+    cmd_state.menu = CommandMenu::ItemSelect;
+    cmd_state.cursor_index = 0;
 
     ui_state.cooldown.tick(time.delta());
 
@@ -460,28 +583,55 @@ fn battle_action_input(
     if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) {
         match ui_state.action_cursor {
             0 => {
-                ui_state.phase = BattleUiPhase::TargetSelect;
-                ui_state.target_cursor = 0;
+                let alive_indices: Vec<usize> = enemies
+                    .enemies
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, e)| e.alive.then_some(idx))
+                    .collect();
+                if alive_indices.is_empty() {
+                    ui_state.message = "No targets available.".into();
+                    ui_state.message_timer.reset();
+                } else {
+                    ui_state.phase = BattleUiPhase::TargetSelect;
+                    ui_state.target_cursor = 0;
+                }
             }
             1 => {
-                ui_state.message = "Djinn system coming soon!".into();
+                ui_state.message = "Djinn not available.".into();
                 ui_state.message_timer.reset();
             }
             2 => {
-                ui_state.message = "No items yet!".into();
+                ui_state.message = "Item not available.".into();
                 ui_state.message_timer.reset();
             }
             3 => {
-                ui_state.message = "Adept defends!".into();
+                if push_pending_action(&mut cmd_state, BattleAction::Defend) {
+                    ui_state.message = "Defend queued.".into();
+                } else {
+                    ui_state.message = "No acting unit available.".into();
+                }
                 ui_state.message_timer.reset();
             }
-            4 => start_transition(&mut transition, GameState::Overworld),
+            4 => {
+                if push_pending_action(&mut cmd_state, BattleAction::Flee) {
+                    ui_state.message = "Flee queued.".into();
+                } else {
+                    ui_state.message = "No acting unit available.".into();
+                }
+                ui_state.message_timer.reset();
+            }
             _ => {}
         }
     }
 
     if keys.just_pressed(KeyCode::Escape) {
-        start_transition(&mut transition, GameState::Overworld);
+        if push_pending_action(&mut cmd_state, BattleAction::Flee) {
+            ui_state.message = "Flee queued.".into();
+        } else {
+            ui_state.message = "No acting unit available.".into();
+        }
+        ui_state.message_timer.reset();
     }
 }
 
@@ -490,38 +640,55 @@ fn battle_target_input(
     time: Res<Time>,
     mut ui_state: ResMut<BattleUiState>,
     enemies: Res<BattleEnemies>,
+    battle_phase: Res<State<BattlePhase>>,
+    mut cmd_state: ResMut<CommandSelectState>,
     mut indicators: Query<(&EnemyTargetIndicator, &mut TextColor)>,
 ) {
     if ui_state.phase != BattleUiPhase::TargetSelect {
         return;
     }
+    if *battle_phase.get() != BattlePhase::CommandSelect {
+        return;
+    }
+    // Keep command-state input neutral while selecting targets through this UI.
+    cmd_state.menu = CommandMenu::ItemSelect;
+    cmd_state.cursor_index = 0;
 
     ui_state.cooldown.tick(time.delta());
 
-    let alive_count = enemies.enemies.iter().filter(|e| e.alive).count();
-    if alive_count == 0 {
+    let alive_indices: Vec<usize> = enemies
+        .enemies
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, e)| e.alive.then_some(idx))
+        .collect();
+    if alive_indices.is_empty() {
         ui_state.phase = BattleUiPhase::Victory;
         return;
+    }
+    if ui_state.target_cursor >= alive_indices.len() {
+        ui_state.target_cursor = 0;
     }
 
     if ui_state.cooldown.finished() {
         if keys.just_pressed(KeyCode::ArrowLeft) || keys.just_pressed(KeyCode::KeyA) {
             ui_state.target_cursor = if ui_state.target_cursor == 0 {
-                alive_count - 1
+                alive_indices.len() - 1
             } else {
                 ui_state.target_cursor - 1
             };
             ui_state.cooldown.reset();
         }
         if keys.just_pressed(KeyCode::ArrowRight) || keys.just_pressed(KeyCode::KeyD) {
-            ui_state.target_cursor = (ui_state.target_cursor + 1) % alive_count;
+            ui_state.target_cursor = (ui_state.target_cursor + 1) % alive_indices.len();
             ui_state.cooldown.reset();
         }
     }
+    let selected_enemy_index = alive_indices[ui_state.target_cursor];
 
     // Show target indicator
     for (ind, mut tc) in &mut indicators {
-        tc.0 = if ind.index == ui_state.target_cursor {
+        tc.0 = if ind.index == selected_enemy_index {
             BRIGHT_GOLD
         } else {
             Color::NONE
@@ -530,11 +697,21 @@ fn battle_target_input(
 
     if keys.just_pressed(KeyCode::Escape) {
         ui_state.phase = BattleUiPhase::ActionSelect;
+        cmd_state.selected_ability = None;
     }
 
     if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) {
-        if let Some(enemy) = enemies.enemies.get(ui_state.target_cursor) {
-            ui_state.message = format!("Adept attacks {}!", enemy.name);
+        if let Some(enemy) = enemies.enemies.get(selected_enemy_index) {
+            if push_pending_action(
+                &mut cmd_state,
+                BattleAction::Attack {
+                    target_id: enemy.id,
+                },
+            ) {
+                ui_state.message = format!("Attack queued on {}.", enemy.name);
+            } else {
+                ui_state.message = "No acting unit available.".into();
+            }
             ui_state.message_timer.reset();
         }
         ui_state.phase = BattleUiPhase::ActionSelect;
@@ -545,6 +722,9 @@ fn update_hp_bars(
     enemies: Res<BattleEnemies>,
     party: Res<BattleParty>,
     mut hp_bars: Query<(&HpBar, &mut Node)>,
+    mut hp_texts: Query<(&HpText, &mut Text)>,
+    mut pp_bars: Query<(&PpBar, &mut Node)>,
+    mut pp_texts: Query<(&PpText, &mut Text)>,
 ) {
     for (bar, mut node) in &mut hp_bars {
         let ratio = if bar.is_enemy {
@@ -561,6 +741,56 @@ fn update_hp_bars(
                 .unwrap_or(0.0)
         };
         node.width = Val::Percent(ratio * 100.0);
+    }
+
+    for (text_ref, mut text) in &mut hp_texts {
+        if text_ref.is_enemy {
+            if let Some(enemy) = enemies.enemies.get(text_ref.index) {
+                **text = format!("{}/{}", enemy.hp, enemy.max_hp);
+            }
+        } else if let Some(member) = party.members.get(text_ref.index) {
+            **text = format!("HP {}/{}", member.hp, member.max_hp);
+        }
+    }
+
+    for (bar, mut node) in &mut pp_bars {
+        let ratio = party
+            .members
+            .get(bar.unit_index)
+            .map(|m| if m.max_pp > 0 { m.pp as f32 / m.max_pp as f32 } else { 0.0 })
+            .unwrap_or(0.0);
+        node.width = Val::Percent(ratio * 100.0);
+    }
+
+    for (text_ref, mut text) in &mut pp_texts {
+        if let Some(member) = party.members.get(text_ref.index) {
+            **text = format!("PP {}/{}", member.pp, member.max_pp);
+        }
+    }
+}
+
+fn update_turn_order_display(
+    battle_state: Res<BattleStateRes>,
+    units: Query<&BattleUnit>,
+    mut text_query: Query<&mut Text, With<TurnOrderText>>,
+) {
+    let Ok(mut text) = text_query.get_single_mut() else {
+        return;
+    };
+
+    let mut names: Vec<String> = Vec::with_capacity(battle_state.turn_order.len());
+    for unit_id in &battle_state.turn_order {
+        if let Some(unit) = units.iter().find(|u| u.id == *unit_id) {
+            names.push(unit.name.clone());
+        } else {
+            names.push(format!("#{unit_id}"));
+        }
+    }
+
+    if names.is_empty() {
+        **text = "Turn: --".into();
+    } else {
+        **text = format!("Turn {}: {}", battle_state.turn_number, names.join(" > "));
     }
 }
 
