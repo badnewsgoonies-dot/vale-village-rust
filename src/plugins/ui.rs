@@ -92,6 +92,42 @@ impl Default for PauseMenuFeedback {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PauseSubMenu {
+    Main,
+    SaveSlotSelect,
+    LoadSlotSelect,
+}
+
+#[derive(Resource, Debug)]
+struct PauseSubMenuState {
+    phase: PauseSubMenu,
+    slot_cursor: usize,
+}
+
+impl Default for PauseSubMenuState {
+    fn default() -> Self {
+        Self {
+            phase: PauseSubMenu::Main,
+            slot_cursor: 0,
+        }
+    }
+}
+
+#[derive(Component)]
+struct SlotSelectionRoot;
+
+#[derive(Component)]
+struct SlotMenuItem {
+    slot: usize,
+}
+
+#[derive(Resource, Debug, Default)]
+struct MainMenuSubState {
+    in_slot_select: bool,
+    slot_cursor: usize,
+}
+
 /// Screen transition state for fade effects.
 #[derive(Resource, Debug)]
 pub struct ScreenTransition {
@@ -141,7 +177,14 @@ impl Plugin for UiPlugin {
                 Update,
                 (main_menu_input, title_pulse_animation).run_if(in_state(GameState::MainMenu)),
             )
-            .add_systems(OnExit(GameState::MainMenu), cleanup::<MainMenuRoot>)
+            .add_systems(
+                OnExit(GameState::MainMenu),
+                (
+                    cleanup::<MainMenuRoot>,
+                    cleanup::<SlotSelectionRoot>,
+                    cleanup_main_menu_sub,
+                ),
+            )
             // Pause Menu
             .add_systems(OnEnter(GameState::Paused), setup_pause_menu)
             .add_systems(Update, pause_menu_input.run_if(in_state(GameState::Paused)))
@@ -151,7 +194,11 @@ impl Plugin for UiPlugin {
             )
             .add_systems(
                 OnExit(GameState::Paused),
-                (cleanup::<PauseMenuRoot>, clear_pause_menu_feedback),
+                (
+                    cleanup::<PauseMenuRoot>,
+                    cleanup::<SlotSelectionRoot>,
+                    clear_pause_menu_feedback,
+                ),
             )
             // Settings
             .add_systems(OnEnter(GameState::Settings), setup_settings)
@@ -224,6 +271,7 @@ const MAIN_MENU_ITEMS: &[&str] = &["New Game", "Continue", "Settings", "Quit"];
 
 fn setup_main_menu(mut commands: Commands) {
     commands.insert_resource(MenuCursor::new(MAIN_MENU_ITEMS.len()));
+    commands.insert_resource(MainMenuSubState::default());
 
     commands
         .spawn((
@@ -338,14 +386,88 @@ fn main_menu_input(world: &mut World) {
     }
 
     let delta = world.resource::<Time>().delta();
-    let (up_pressed, down_pressed, confirm_pressed) = {
+    let (up_pressed, down_pressed, confirm_pressed, escape_pressed) = {
         let keys = world.resource::<ButtonInput<KeyCode>>();
         (
             keys.just_pressed(KeyCode::ArrowUp) || keys.just_pressed(KeyCode::KeyW),
             keys.just_pressed(KeyCode::ArrowDown) || keys.just_pressed(KeyCode::KeyS),
             keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space),
+            keys.just_pressed(KeyCode::Escape),
         )
     };
+
+    // Handle slot selection sub-menu for Continue
+    let in_slot_select = world
+        .get_resource::<MainMenuSubState>()
+        .map(|s| s.in_slot_select)
+        .unwrap_or(false);
+
+    if in_slot_select {
+        let max_slots = world
+            .get_resource::<SaveSystem>()
+            .map(|s| s.max_slots)
+            .unwrap_or(3);
+
+        {
+            let mut sub = world.resource_mut::<MainMenuSubState>();
+            if up_pressed && sub.slot_cursor > 0 {
+                sub.slot_cursor -= 1;
+            }
+            if down_pressed && sub.slot_cursor < max_slots - 1 {
+                sub.slot_cursor += 1;
+            }
+        }
+
+        let slot_cursor = world.resource::<MainMenuSubState>().slot_cursor;
+
+        // Update slot visuals
+        {
+            let mut items = world.query::<(&SlotMenuItem, &mut TextColor)>();
+            for (item, mut color) in items.iter_mut(world) {
+                color.0 = if item.slot == slot_cursor {
+                    BRIGHT_GOLD
+                } else {
+                    DIM_TEXT
+                };
+            }
+        }
+
+        if escape_pressed {
+            despawn_slot_selection(world);
+            if let Some(mut sub) = world.get_resource_mut::<MainMenuSubState>() {
+                sub.in_slot_select = false;
+                sub.slot_cursor = 0;
+            }
+            return;
+        }
+
+        if confirm_pressed {
+            let slot = slot_cursor;
+            let result = {
+                let save_system = world.resource::<SaveSystem>();
+                save_system.load(slot)
+            };
+            match result {
+                Ok(save_data) => {
+                    save_data.apply_to_game(world);
+                    despawn_slot_selection(world);
+                    if let Some(mut sub) = world.get_resource_mut::<MainMenuSubState>() {
+                        sub.in_slot_select = false;
+                    }
+                    let mut transition = world.resource_mut::<ScreenTransition>();
+                    start_transition(&mut transition, GameState::Overworld);
+                }
+                Err(_) => {
+                    // No save in that slot
+                    despawn_slot_selection(world);
+                    if let Some(mut sub) = world.get_resource_mut::<MainMenuSubState>() {
+                        sub.in_slot_select = false;
+                    }
+                }
+            }
+        }
+        return;
+    }
 
     {
         let mut cursor = world.resource_mut::<MenuCursor>();
@@ -406,23 +528,11 @@ fn main_menu_input(world: &mut World) {
             start_transition(&mut transition, GameState::Overworld);
         }
         1 => {
-            // Continue - load from slot 1
-            let result = {
-                let save_system = world.resource::<SaveSystem>();
-                save_system.load(1)
-            };
-
-            match result {
-                Ok(save_data) => {
-                    save_data.apply_to_game(world);
-                    let mut transition = world.resource_mut::<ScreenTransition>();
-                    start_transition(&mut transition, GameState::Overworld);
-                }
-                Err(_) => {
-                    // No save found, just start new game
-                    let mut transition = world.resource_mut::<ScreenTransition>();
-                    start_transition(&mut transition, GameState::Overworld);
-                }
+            // Continue - open slot selection
+            spawn_slot_selection(world, false);
+            if let Some(mut sub) = world.get_resource_mut::<MainMenuSubState>() {
+                sub.in_slot_select = true;
+                sub.slot_cursor = 0;
             }
         }
         2 => {
@@ -436,6 +546,10 @@ fn main_menu_input(world: &mut World) {
     }
 }
 
+fn cleanup_main_menu_sub(mut commands: Commands) {
+    commands.remove_resource::<MainMenuSubState>();
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // PAUSE MENU
 // ══════════════════════════════════════════════════════════════════════
@@ -445,6 +559,7 @@ const PAUSE_ITEMS: &[&str] = &["Resume", "Save", "Load", "Settings", "Quit to Ti
 fn setup_pause_menu(mut commands: Commands) {
     commands.insert_resource(MenuCursor::new(PAUSE_ITEMS.len()));
     commands.insert_resource(PauseMenuFeedback::default());
+    commands.insert_resource(PauseSubMenuState::default());
 
     commands
         .spawn((
@@ -537,95 +652,278 @@ fn pause_menu_input(world: &mut World) {
         )
     };
 
-    {
-        let mut cursor = world.resource_mut::<MenuCursor>();
-        cursor.cooldown.tick(delta);
+    let sub_phase = world
+        .get_resource::<PauseSubMenuState>()
+        .map(|s| s.phase)
+        .unwrap_or(PauseSubMenu::Main);
 
-        if cursor.cooldown.finished() {
-            if up_pressed {
-                cursor.selected = if cursor.selected == 0 {
-                    cursor.count - 1
+    match sub_phase {
+        PauseSubMenu::SaveSlotSelect | PauseSubMenu::LoadSlotSelect => {
+            let is_save = sub_phase == PauseSubMenu::SaveSlotSelect;
+            let max_slots = world
+                .get_resource::<SaveSystem>()
+                .map(|s| s.max_slots)
+                .unwrap_or(3);
+
+            {
+                let mut sub = world.resource_mut::<PauseSubMenuState>();
+                if up_pressed && sub.slot_cursor > 0 {
+                    sub.slot_cursor -= 1;
+                }
+                if down_pressed && sub.slot_cursor < max_slots - 1 {
+                    sub.slot_cursor += 1;
+                }
+            }
+
+            let slot_cursor = world.resource::<PauseSubMenuState>().slot_cursor;
+
+            // Update slot visuals
+            {
+                let mut items = world.query::<(&SlotMenuItem, &mut TextColor)>();
+                for (item, mut color) in items.iter_mut(world) {
+                    color.0 = if item.slot == slot_cursor {
+                        BRIGHT_GOLD
+                    } else {
+                        DIM_TEXT
+                    };
+                }
+            }
+
+            if escape_pressed {
+                // Go back to main pause menu
+                despawn_slot_selection(world);
+                if let Some(mut sub) = world.get_resource_mut::<PauseSubMenuState>() {
+                    sub.phase = PauseSubMenu::Main;
+                    sub.slot_cursor = 0;
+                }
+                return;
+            }
+
+            if confirm_pressed {
+                let slot = slot_cursor;
+                if is_save {
+                    let save_data = SaveData::from_game_state(world);
+                    let result = {
+                        let save_system = world.resource::<SaveSystem>();
+                        save_system.save(slot, &save_data)
+                    };
+                    match result {
+                        Ok(()) => {
+                            set_pause_menu_feedback(world, format!("Saved to slot {}!", slot + 1))
+                        }
+                        Err(error) => {
+                            warn!("Failed to save slot {}: {}", slot, error);
+                            set_pause_menu_feedback(world, format!("Save failed: {}", error));
+                        }
+                    }
                 } else {
-                    cursor.selected - 1
-                };
-                cursor.cooldown.reset();
-            }
-            if down_pressed {
-                cursor.selected = (cursor.selected + 1) % cursor.count;
-                cursor.cooldown.reset();
-            }
-        }
-    }
+                    let result = {
+                        let save_system = world.resource::<SaveSystem>();
+                        save_system.load(slot)
+                    };
+                    match result {
+                        Ok(save_data) => {
+                            save_data.apply_to_game(world);
+                            set_pause_menu_feedback(
+                                world,
+                                format!("Loaded from slot {}!", slot + 1),
+                            );
+                        }
+                        Err(error) => {
+                            warn!("Failed to load slot {}: {}", slot, error);
+                            set_pause_menu_feedback(world, format!("Load failed: {}", error));
+                        }
+                    }
+                }
 
-    let selected = world.resource::<MenuCursor>().selected;
-
-    {
-        let mut items = world.query::<(&PauseMenuItem, &mut TextColor)>();
-        for (item, mut color) in items.iter_mut(world) {
-            color.0 = if item.index == selected {
-                BRIGHT_GOLD
-            } else {
-                DIM_TEXT
-            };
-        }
-    }
-
-    if escape_pressed {
-        let mut transition = world.resource_mut::<ScreenTransition>();
-        start_transition(&mut transition, GameState::Overworld);
-        return;
-    }
-
-    if !confirm_pressed {
-        return;
-    }
-
-    match selected {
-        0 => {
-            let mut transition = world.resource_mut::<ScreenTransition>();
-            start_transition(&mut transition, GameState::Overworld);
-        }
-        1 => {
-            let save_data = SaveData::from_game_state(world);
-            let result = {
-                let save_system = world.resource::<SaveSystem>();
-                save_system.save(1, &save_data)
-            };
-
-            match result {
-                Ok(()) => set_pause_menu_feedback(world, "Saved!"),
-                Err(error) => {
-                    warn!("Failed to save slot 1: {}", error);
-                    set_pause_menu_feedback(world, format!("Save failed: {}", error));
+                // Return to main pause menu
+                despawn_slot_selection(world);
+                if let Some(mut sub) = world.get_resource_mut::<PauseSubMenuState>() {
+                    sub.phase = PauseSubMenu::Main;
+                    sub.slot_cursor = 0;
                 }
             }
         }
-        2 => {
-            let result = {
-                let save_system = world.resource::<SaveSystem>();
-                save_system.load(1)
-            };
+        PauseSubMenu::Main => {
+            {
+                let mut cursor = world.resource_mut::<MenuCursor>();
+                cursor.cooldown.tick(delta);
 
-            match result {
-                Ok(save_data) => {
-                    save_data.apply_to_game(world);
-                    set_pause_menu_feedback(world, "Loaded!");
-                }
-                Err(error) => {
-                    warn!("Failed to load slot 1: {}", error);
-                    set_pause_menu_feedback(world, format!("Load failed: {}", error));
+                if cursor.cooldown.finished() {
+                    if up_pressed {
+                        cursor.selected = if cursor.selected == 0 {
+                            cursor.count - 1
+                        } else {
+                            cursor.selected - 1
+                        };
+                        cursor.cooldown.reset();
+                    }
+                    if down_pressed {
+                        cursor.selected = (cursor.selected + 1) % cursor.count;
+                        cursor.cooldown.reset();
+                    }
                 }
             }
+
+            let selected = world.resource::<MenuCursor>().selected;
+
+            {
+                let mut items = world.query::<(&PauseMenuItem, &mut TextColor)>();
+                for (item, mut color) in items.iter_mut(world) {
+                    color.0 = if item.index == selected {
+                        BRIGHT_GOLD
+                    } else {
+                        DIM_TEXT
+                    };
+                }
+            }
+
+            if escape_pressed {
+                let mut transition = world.resource_mut::<ScreenTransition>();
+                start_transition(&mut transition, GameState::Overworld);
+                return;
+            }
+
+            if !confirm_pressed {
+                return;
+            }
+
+            match selected {
+                0 => {
+                    let mut transition = world.resource_mut::<ScreenTransition>();
+                    start_transition(&mut transition, GameState::Overworld);
+                }
+                1 => {
+                    // Save - open slot selection
+                    spawn_slot_selection(world, true);
+                    if let Some(mut sub) = world.get_resource_mut::<PauseSubMenuState>() {
+                        sub.phase = PauseSubMenu::SaveSlotSelect;
+                        sub.slot_cursor = 0;
+                    }
+                }
+                2 => {
+                    // Load - open slot selection
+                    spawn_slot_selection(world, false);
+                    if let Some(mut sub) = world.get_resource_mut::<PauseSubMenuState>() {
+                        sub.phase = PauseSubMenu::LoadSlotSelect;
+                        sub.slot_cursor = 0;
+                    }
+                }
+                3 => {
+                    let mut transition = world.resource_mut::<ScreenTransition>();
+                    start_transition(&mut transition, GameState::Settings);
+                }
+                4 => {
+                    let mut transition = world.resource_mut::<ScreenTransition>();
+                    start_transition(&mut transition, GameState::MainMenu);
+                }
+                _ => {}
+            }
         }
-        3 => {
-            let mut transition = world.resource_mut::<ScreenTransition>();
-            start_transition(&mut transition, GameState::Settings);
-        }
-        4 => {
-            let mut transition = world.resource_mut::<ScreenTransition>();
-            start_transition(&mut transition, GameState::MainMenu);
-        }
-        _ => {}
+    }
+}
+
+fn spawn_slot_selection(world: &mut World, is_save: bool) {
+    let title = if is_save {
+        "Select Save Slot"
+    } else {
+        "Select Load Slot"
+    };
+
+    let slot_info: Vec<(usize, bool)> = world
+        .get_resource::<SaveSystem>()
+        .map(|ss| ss.list_saves())
+        .unwrap_or_else(|| vec![(0, false), (1, false), (2, false)]);
+
+    world
+        .commands()
+        .spawn((
+            SlotSelectionRoot,
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
+            GlobalZIndex(60),
+        ))
+        .with_children(|parent| {
+            parent
+                .spawn((
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        padding: UiRect::all(Val::Px(24.0)),
+                        border: UiRect::all(Val::Px(2.0)),
+                        min_width: Val::Px(300.0),
+                        row_gap: Val::Px(8.0),
+                        ..default()
+                    },
+                    BackgroundColor(MENU_BG),
+                    BorderColor(GOLD),
+                ))
+                .with_children(|menu| {
+                    menu.spawn((
+                        Text::new(title),
+                        TextFont {
+                            font_size: 28.0,
+                            ..default()
+                        },
+                        TextColor(BRIGHT_GOLD),
+                        Node {
+                            margin: UiRect::bottom(Val::Px(12.0)),
+                            ..default()
+                        },
+                    ));
+
+                    for (slot, has_data) in &slot_info {
+                        let label = if *has_data {
+                            format!("Slot {} [Data]", slot + 1)
+                        } else {
+                            format!("Slot {} [Empty]", slot + 1)
+                        };
+                        let is_sel = *slot == 0;
+                        menu.spawn((
+                            SlotMenuItem { slot: *slot },
+                            Text::new(label),
+                            TextFont {
+                                font_size: 22.0,
+                                ..default()
+                            },
+                            TextColor(if is_sel { BRIGHT_GOLD } else { DIM_TEXT }),
+                            Node {
+                                margin: UiRect::vertical(Val::Px(4.0)),
+                                ..default()
+                            },
+                        ));
+                    }
+
+                    menu.spawn((
+                        Text::new("[Up/Down] Select  [Enter] Confirm  [Esc] Back"),
+                        TextFont {
+                            font_size: 14.0,
+                            ..default()
+                        },
+                        TextColor(Color::srgba(0.5, 0.5, 0.5, 0.7)),
+                        Node {
+                            margin: UiRect::top(Val::Px(12.0)),
+                            ..default()
+                        },
+                    ));
+                });
+        });
+}
+
+fn despawn_slot_selection(world: &mut World) {
+    let entities: Vec<Entity> = world
+        .query_filtered::<Entity, With<SlotSelectionRoot>>()
+        .iter(world)
+        .collect();
+    for entity in entities {
+        world.commands().entity(entity).despawn_recursive();
     }
 }
 
@@ -670,6 +968,7 @@ fn pause_menu_feedback_update(
 
 fn clear_pause_menu_feedback(mut commands: Commands) {
     commands.remove_resource::<PauseMenuFeedback>();
+    commands.remove_resource::<PauseSubMenuState>();
 }
 
 // ══════════════════════════════════════════════════════════════════════

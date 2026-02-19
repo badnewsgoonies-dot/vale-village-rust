@@ -12,6 +12,7 @@ use crate::battle::types::{
     UnitSide,
 };
 use crate::components::stats::Element;
+use crate::plugins::core_plugin::{GameData, Party};
 
 // ── Colors ────────────────────────────────────────────────────────────
 const BATTLE_BG: Color = Color::srgb(0.06, 0.06, 0.14);
@@ -111,6 +112,9 @@ struct EnemyTargetIndicator {
 enum BattleUiPhase {
     ActionSelect,
     TargetSelect,
+    ItemSelect,
+    ItemTargetSelect,
+    DjinnSelect,
     Animating,
     Victory,
     Defeat,
@@ -167,6 +171,36 @@ impl From<&BattleUnit> for BattleDisplayUnit {
     }
 }
 
+/// Tracks the item selection sub-menu state.
+#[derive(Resource, Debug, Default)]
+struct ItemSelectUiState {
+    cursor: usize,
+    items: Vec<(String, String, bool)>, // (item_id, display_name, is_healing)
+}
+
+/// Tracks the djinn selection sub-menu state.
+#[derive(Resource, Debug, Default)]
+struct DjinnSelectUiState {
+    cursor: usize,
+    djinn: Vec<(String, String)>, // (djinn_id, display_name)
+}
+
+#[derive(Component)]
+struct ItemSelectPanelRoot;
+
+#[derive(Component)]
+struct ItemSelectEntry {
+    index: usize,
+}
+
+#[derive(Component)]
+struct DjinnSelectPanelRoot;
+
+#[derive(Component)]
+struct DjinnSelectEntry {
+    index: usize,
+}
+
 #[derive(Resource, Debug, Default)]
 struct BattleEnemies {
     enemies: Vec<BattleDisplayUnit>,
@@ -193,6 +227,9 @@ impl Plugin for BattleUiPlugin {
                     rebuild_battle_unit_panels,
                     battle_action_input,
                     battle_target_input,
+                    battle_item_select_input,
+                    battle_item_target_input,
+                    battle_djinn_select_input,
                     update_hp_bars,
                     update_turn_order_display,
                     update_damage_numbers,
@@ -223,6 +260,8 @@ fn setup_battle_ui(mut commands: Commands) {
     commands.insert_resource(BattleUiState::default());
     commands.insert_resource(BattleEnemies::default());
     commands.insert_resource(BattleParty::default());
+    commands.insert_resource(ItemSelectUiState::default());
+    commands.insert_resource(DjinnSelectUiState::default());
 
     commands
         .spawn((
@@ -689,12 +728,12 @@ fn battle_action_input(
                 }
             }
             1 => {
-                ui_state.message = "Djinn not available.".into();
-                ui_state.message_timer.reset();
+                // Djinn select - open djinn sub-menu
+                ui_state.phase = BattleUiPhase::DjinnSelect;
             }
             2 => {
-                ui_state.message = "Item not available.".into();
-                ui_state.message_timer.reset();
+                // Item select - open item sub-menu
+                ui_state.phase = BattleUiPhase::ItemSelect;
             }
             3 => {
                 if push_pending_action(&mut cmd_state, BattleAction::Defend) {
@@ -805,6 +844,566 @@ fn battle_target_input(
             }
             ui_state.message_timer.reset();
         }
+        ui_state.phase = BattleUiPhase::ActionSelect;
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn battle_item_select_input(
+    mut commands: Commands,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut ui_state: ResMut<BattleUiState>,
+    mut item_state: ResMut<ItemSelectUiState>,
+    battle_phase: Res<State<BattlePhase>>,
+    party: Res<Party>,
+    game_data: Res<GameData>,
+    existing_panels: Query<Entity, With<ItemSelectPanelRoot>>,
+    mut entries: Query<(&ItemSelectEntry, &mut Text, &mut TextColor)>,
+) {
+    if ui_state.phase != BattleUiPhase::ItemSelect {
+        // Despawn item panel if phase changed
+        for entity in &existing_panels {
+            commands.entity(entity).despawn_recursive();
+        }
+        return;
+    }
+    if *battle_phase.get() != BattlePhase::CommandSelect {
+        return;
+    }
+
+    // Build item list on first frame of this phase
+    if item_state.items.is_empty() && existing_panels.is_empty() {
+        let mut items: Vec<(String, String, bool)> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for item_id in &party.inventory {
+            if seen.contains(item_id) {
+                continue;
+            }
+            seen.insert(item_id.clone());
+            if let Some(def) = game_data.items.get(item_id) {
+                let count = party.inventory.iter().filter(|id| *id == item_id).count();
+                let is_healing = def.effect.hp_restore > 0
+                    || def.effect.pp_restore > 0
+                    || def.effect.revive
+                    || !def.effect.removes_status.is_empty();
+                items.push((
+                    item_id.clone(),
+                    format!("{} x{}", def.name, count),
+                    is_healing,
+                ));
+            }
+        }
+
+        if items.is_empty() {
+            ui_state.message = "No usable items.".into();
+            ui_state.message_timer.reset();
+            ui_state.phase = BattleUiPhase::ActionSelect;
+            return;
+        }
+
+        item_state.items = items.clone();
+        item_state.cursor = 0;
+
+        // Spawn the item select overlay
+        commands
+            .spawn((
+                ItemSelectPanelRoot,
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Percent(25.0),
+                    top: Val::Percent(20.0),
+                    width: Val::Percent(50.0),
+                    flex_direction: FlexDirection::Column,
+                    padding: UiRect::all(Val::Px(16.0)),
+                    border: UiRect::all(Val::Px(2.0)),
+                    row_gap: Val::Px(4.0),
+                    ..default()
+                },
+                BackgroundColor(MENU_BG),
+                BorderColor(GOLD_TEXT),
+                GlobalZIndex(20),
+            ))
+            .with_children(|panel| {
+                panel.spawn((
+                    Text::new("Select Item"),
+                    TextFont {
+                        font_size: 22.0,
+                        ..default()
+                    },
+                    TextColor(BRIGHT_GOLD),
+                    Node {
+                        margin: UiRect::bottom(Val::Px(8.0)),
+                        ..default()
+                    },
+                ));
+
+                for (i, (_, display_name, _)) in items.iter().enumerate() {
+                    let is_sel = i == 0;
+                    let prefix = if is_sel { "> " } else { "  " };
+                    panel.spawn((
+                        ItemSelectEntry { index: i },
+                        Text::new(format!("{prefix}{display_name}")),
+                        TextFont {
+                            font_size: 18.0,
+                            ..default()
+                        },
+                        TextColor(if is_sel { BRIGHT_GOLD } else { DIM_TEXT }),
+                    ));
+                }
+
+                panel.spawn((
+                    Text::new("[Up/Down] Select  [Enter] Use  [Esc] Back"),
+                    TextFont {
+                        font_size: 14.0,
+                        ..default()
+                    },
+                    TextColor(DIM_TEXT),
+                    Node {
+                        margin: UiRect::top(Val::Px(8.0)),
+                        ..default()
+                    },
+                ));
+            });
+    }
+
+    // Navigate
+    let total = item_state.items.len();
+    if total > 0 {
+        if keys.just_pressed(KeyCode::ArrowUp) {
+            item_state.cursor = if item_state.cursor == 0 {
+                total - 1
+            } else {
+                item_state.cursor - 1
+            };
+        }
+        if keys.just_pressed(KeyCode::ArrowDown) {
+            item_state.cursor = (item_state.cursor + 1) % total;
+        }
+
+        // Update visuals
+        for (entry, mut text, mut color) in &mut entries {
+            let is_sel = entry.index == item_state.cursor;
+            let base = text
+                .as_str()
+                .trim_start_matches("> ")
+                .trim_start_matches("  ");
+            let prefix = if is_sel { "> " } else { "  " };
+            **text = format!("{prefix}{base}");
+            *color = TextColor(if is_sel { BRIGHT_GOLD } else { DIM_TEXT });
+        }
+    }
+
+    if keys.just_pressed(KeyCode::Escape) {
+        for entity in &existing_panels {
+            commands.entity(entity).despawn_recursive();
+        }
+        item_state.items.clear();
+        ui_state.phase = BattleUiPhase::ActionSelect;
+    }
+
+    if (keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space))
+        && item_state.items.get(item_state.cursor).is_some()
+    {
+        // Despawn item select panel
+        for entity in &existing_panels {
+            commands.entity(entity).despawn_recursive();
+        }
+
+        // Both healing and damage items go to target select
+        ui_state.phase = BattleUiPhase::ItemTargetSelect;
+        ui_state.target_cursor = 0;
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn battle_item_target_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut ui_state: ResMut<BattleUiState>,
+    mut item_state: ResMut<ItemSelectUiState>,
+    enemies: Res<BattleEnemies>,
+    party_display: Res<BattleParty>,
+    battle_phase: Res<State<BattlePhase>>,
+    mut cmd_state: ResMut<CommandSelectState>,
+    mut party: ResMut<Party>,
+    mut indicators: Query<(&EnemyTargetIndicator, &mut TextColor)>,
+) {
+    if ui_state.phase != BattleUiPhase::ItemTargetSelect {
+        return;
+    }
+    if *battle_phase.get() != BattlePhase::CommandSelect {
+        return;
+    }
+
+    let Some((item_id, _, is_healing)) = item_state.items.get(item_state.cursor).cloned() else {
+        ui_state.phase = BattleUiPhase::ActionSelect;
+        item_state.items.clear();
+        return;
+    };
+
+    if is_healing {
+        // Target ally
+        let alive_allies: Vec<usize> = party_display
+            .members
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, m)| m.alive.then_some(idx))
+            .collect();
+
+        if alive_allies.is_empty() {
+            ui_state.phase = BattleUiPhase::ActionSelect;
+            item_state.items.clear();
+            return;
+        }
+
+        if ui_state.target_cursor >= alive_allies.len() {
+            ui_state.target_cursor = 0;
+        }
+
+        // Hide enemy indicators
+        for (_, mut tc) in &mut indicators {
+            tc.0 = Color::NONE;
+        }
+
+        if keys.just_pressed(KeyCode::ArrowUp) || keys.just_pressed(KeyCode::ArrowLeft) {
+            ui_state.target_cursor = if ui_state.target_cursor == 0 {
+                alive_allies.len() - 1
+            } else {
+                ui_state.target_cursor - 1
+            };
+        }
+        if keys.just_pressed(KeyCode::ArrowDown) || keys.just_pressed(KeyCode::ArrowRight) {
+            ui_state.target_cursor = (ui_state.target_cursor + 1) % alive_allies.len();
+        }
+
+        let selected_idx = alive_allies[ui_state.target_cursor];
+        ui_state.message = format!(
+            "Use {} on: {}",
+            item_state
+                .items
+                .get(item_state.cursor)
+                .map(|(_, n, _)| n.as_str())
+                .unwrap_or("?"),
+            party_display
+                .members
+                .get(selected_idx)
+                .map(|m| m.name.as_str())
+                .unwrap_or("?")
+        );
+
+        if keys.just_pressed(KeyCode::Escape) {
+            ui_state.phase = BattleUiPhase::ItemSelect;
+            ui_state.message = String::new();
+        }
+
+        if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) {
+            if let Some(ally) = party_display.members.get(selected_idx) {
+                if push_pending_action(
+                    &mut cmd_state,
+                    BattleAction::Item {
+                        item_id: item_id.clone(),
+                        target_id: ally.id,
+                    },
+                ) {
+                    // Consume the item from party inventory
+                    if let Some(pos) = party.inventory.iter().position(|id| *id == item_id) {
+                        party.inventory.remove(pos);
+                    }
+                    ui_state.message = format!("Item queued on {}.", ally.name);
+                } else {
+                    ui_state.message = "No acting unit available.".into();
+                }
+                ui_state.message_timer.reset();
+            }
+            item_state.items.clear();
+            ui_state.phase = BattleUiPhase::ActionSelect;
+        }
+    } else {
+        // Target enemy (damage item)
+        let alive_enemies: Vec<usize> = enemies
+            .enemies
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, e)| e.alive.then_some(idx))
+            .collect();
+
+        if alive_enemies.is_empty() {
+            ui_state.phase = BattleUiPhase::ActionSelect;
+            item_state.items.clear();
+            return;
+        }
+
+        if ui_state.target_cursor >= alive_enemies.len() {
+            ui_state.target_cursor = 0;
+        }
+
+        if keys.just_pressed(KeyCode::ArrowLeft) {
+            ui_state.target_cursor = if ui_state.target_cursor == 0 {
+                alive_enemies.len() - 1
+            } else {
+                ui_state.target_cursor - 1
+            };
+        }
+        if keys.just_pressed(KeyCode::ArrowRight) {
+            ui_state.target_cursor = (ui_state.target_cursor + 1) % alive_enemies.len();
+        }
+
+        let selected_enemy_index = alive_enemies[ui_state.target_cursor];
+
+        // Show target indicator
+        for (ind, mut tc) in &mut indicators {
+            tc.0 = if ind.index == selected_enemy_index {
+                BRIGHT_GOLD
+            } else {
+                Color::NONE
+            };
+        }
+
+        ui_state.message = format!(
+            "Use {} on: {}",
+            item_state
+                .items
+                .get(item_state.cursor)
+                .map(|(_, n, _)| n.as_str())
+                .unwrap_or("?"),
+            enemies
+                .enemies
+                .get(selected_enemy_index)
+                .map(|e| e.name.as_str())
+                .unwrap_or("?")
+        );
+
+        if keys.just_pressed(KeyCode::Escape) {
+            ui_state.phase = BattleUiPhase::ItemSelect;
+            ui_state.message = String::new();
+            // Hide indicators
+            for (_, mut tc) in &mut indicators {
+                tc.0 = Color::NONE;
+            }
+        }
+
+        if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) {
+            if let Some(enemy) = enemies.enemies.get(selected_enemy_index) {
+                if push_pending_action(
+                    &mut cmd_state,
+                    BattleAction::Item {
+                        item_id: item_id.clone(),
+                        target_id: enemy.id,
+                    },
+                ) {
+                    // Consume the item
+                    if let Some(pos) = party.inventory.iter().position(|id| *id == item_id) {
+                        party.inventory.remove(pos);
+                    }
+                    ui_state.message = format!("Item queued on {}.", enemy.name);
+                } else {
+                    ui_state.message = "No acting unit available.".into();
+                }
+                ui_state.message_timer.reset();
+            }
+            item_state.items.clear();
+            ui_state.phase = BattleUiPhase::ActionSelect;
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn battle_djinn_select_input(
+    mut commands: Commands,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut ui_state: ResMut<BattleUiState>,
+    mut djinn_state: ResMut<DjinnSelectUiState>,
+    battle_phase: Res<State<BattlePhase>>,
+    cmd_state: Res<CommandSelectState>,
+    units: Query<&BattleUnit>,
+    game_data: Res<GameData>,
+    djinn_battle: Res<crate::battle::types::DjinnBattleRes>,
+    existing_panels: Query<Entity, With<DjinnSelectPanelRoot>>,
+    enemies: Res<BattleEnemies>,
+    mut entries: Query<(&DjinnSelectEntry, &mut Text, &mut TextColor)>,
+    mut next_cmd_state: ResMut<CommandSelectState>,
+) {
+    if ui_state.phase != BattleUiPhase::DjinnSelect {
+        for entity in &existing_panels {
+            commands.entity(entity).despawn_recursive();
+        }
+        return;
+    }
+    if *battle_phase.get() != BattlePhase::CommandSelect {
+        return;
+    }
+
+    // Build djinn list on first frame
+    if djinn_state.djinn.is_empty() && existing_panels.is_empty() {
+        // Get current selecting unit
+        let player_units: Vec<&BattleUnit> = units
+            .iter()
+            .filter(|u| u.side == UnitSide::Player && u.is_alive())
+            .collect();
+
+        let unit = player_units.get(cmd_state.selecting_unit_index);
+        let Some(unit) = unit else {
+            ui_state.phase = BattleUiPhase::ActionSelect;
+            return;
+        };
+
+        // Find set djinn for this unit
+        let set_djinn: Vec<(String, String)> = djinn_battle
+            .trackers
+            .iter()
+            .filter(|t| {
+                t.owner_unit_id == unit.id && t.state == crate::battle::types::DjinnBattleState::Set
+            })
+            .map(|t| {
+                let name = game_data
+                    .djinn
+                    .get(&t.djinn_id)
+                    .map(|d| d.name.clone())
+                    .unwrap_or_else(|| t.djinn_id.clone());
+                (t.djinn_id.clone(), name)
+            })
+            .collect();
+
+        if set_djinn.is_empty() {
+            ui_state.message = "No djinn available.".into();
+            ui_state.message_timer.reset();
+            ui_state.phase = BattleUiPhase::ActionSelect;
+            return;
+        }
+
+        djinn_state.djinn = set_djinn.clone();
+        djinn_state.cursor = 0;
+
+        commands
+            .spawn((
+                DjinnSelectPanelRoot,
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Percent(25.0),
+                    top: Val::Percent(20.0),
+                    width: Val::Percent(50.0),
+                    flex_direction: FlexDirection::Column,
+                    padding: UiRect::all(Val::Px(16.0)),
+                    border: UiRect::all(Val::Px(2.0)),
+                    row_gap: Val::Px(4.0),
+                    ..default()
+                },
+                BackgroundColor(MENU_BG),
+                BorderColor(GOLD_TEXT),
+                GlobalZIndex(20),
+            ))
+            .with_children(|panel| {
+                panel.spawn((
+                    Text::new("Select Djinn to Unleash"),
+                    TextFont {
+                        font_size: 22.0,
+                        ..default()
+                    },
+                    TextColor(BRIGHT_GOLD),
+                    Node {
+                        margin: UiRect::bottom(Val::Px(8.0)),
+                        ..default()
+                    },
+                ));
+
+                for (i, (_, name)) in set_djinn.iter().enumerate() {
+                    let is_sel = i == 0;
+                    let prefix = if is_sel { "> " } else { "  " };
+                    panel.spawn((
+                        DjinnSelectEntry { index: i },
+                        Text::new(format!("{prefix}{name}")),
+                        TextFont {
+                            font_size: 18.0,
+                            ..default()
+                        },
+                        TextColor(if is_sel { BRIGHT_GOLD } else { DIM_TEXT }),
+                    ));
+                }
+
+                panel.spawn((
+                    Text::new("[Up/Down] Select  [Enter] Unleash  [Esc] Back"),
+                    TextFont {
+                        font_size: 14.0,
+                        ..default()
+                    },
+                    TextColor(DIM_TEXT),
+                    Node {
+                        margin: UiRect::top(Val::Px(8.0)),
+                        ..default()
+                    },
+                ));
+            });
+    }
+
+    // Navigate
+    let total = djinn_state.djinn.len();
+    if total > 0 {
+        if keys.just_pressed(KeyCode::ArrowUp) {
+            djinn_state.cursor = if djinn_state.cursor == 0 {
+                total - 1
+            } else {
+                djinn_state.cursor - 1
+            };
+        }
+        if keys.just_pressed(KeyCode::ArrowDown) {
+            djinn_state.cursor = (djinn_state.cursor + 1) % total;
+        }
+
+        for (entry, mut text, mut color) in &mut entries {
+            let is_sel = entry.index == djinn_state.cursor;
+            let base = text
+                .as_str()
+                .trim_start_matches("> ")
+                .trim_start_matches("  ");
+            let prefix = if is_sel { "> " } else { "  " };
+            **text = format!("{prefix}{base}");
+            *color = TextColor(if is_sel { BRIGHT_GOLD } else { DIM_TEXT });
+        }
+    }
+
+    if keys.just_pressed(KeyCode::Escape) {
+        for entity in &existing_panels {
+            commands.entity(entity).despawn_recursive();
+        }
+        djinn_state.djinn.clear();
+        ui_state.phase = BattleUiPhase::ActionSelect;
+    }
+
+    if (keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space))
+        && let Some((djinn_id, djinn_name)) = djinn_state.djinn.get(djinn_state.cursor).cloned()
+    {
+        for entity in &existing_panels {
+            commands.entity(entity).despawn_recursive();
+        }
+
+        // Pick first alive enemy as target for unleash
+        let alive_enemies: Vec<usize> = enemies
+            .enemies
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, e)| e.alive.then_some(idx))
+            .collect();
+
+        if let Some(&target_idx) = alive_enemies.first() {
+            if let Some(enemy) = enemies.enemies.get(target_idx) {
+                if push_pending_action(
+                    &mut next_cmd_state,
+                    BattleAction::DjinnUnleash {
+                        djinn_id: djinn_id.clone(),
+                        target_id: enemy.id,
+                    },
+                ) {
+                    ui_state.message = format!("Djinn {} unleashed!", djinn_name);
+                } else {
+                    ui_state.message = "No acting unit available.".into();
+                }
+                ui_state.message_timer.reset();
+            }
+        } else {
+            ui_state.message = "No targets available.".into();
+            ui_state.message_timer.reset();
+        }
+
+        djinn_state.djinn.clear();
         ui_state.phase = BattleUiPhase::ActionSelect;
     }
 }
@@ -938,11 +1537,24 @@ fn update_battle_message(
     }
 }
 
-fn cleanup_battle(mut commands: Commands, query: Query<Entity, With<BattleRoot>>) {
+fn cleanup_battle(
+    mut commands: Commands,
+    query: Query<Entity, With<BattleRoot>>,
+    item_panels: Query<Entity, With<ItemSelectPanelRoot>>,
+    djinn_panels: Query<Entity, With<DjinnSelectPanelRoot>>,
+) {
     for entity in &query {
         commands.entity(entity).despawn();
+    }
+    for entity in &item_panels {
+        commands.entity(entity).despawn_recursive();
+    }
+    for entity in &djinn_panels {
+        commands.entity(entity).despawn_recursive();
     }
     commands.remove_resource::<BattleUiState>();
     commands.remove_resource::<BattleEnemies>();
     commands.remove_resource::<BattleParty>();
+    commands.remove_resource::<ItemSelectUiState>();
+    commands.remove_resource::<DjinnSelectUiState>();
 }

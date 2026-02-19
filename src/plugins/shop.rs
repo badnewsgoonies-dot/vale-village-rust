@@ -37,12 +37,37 @@ struct ShopGoldText;
 #[derive(Component)]
 struct ShopMessageText;
 
+#[derive(Component)]
+struct ShopModeText;
+
+#[derive(Component)]
+struct SellPanelRoot;
+
+#[derive(Component)]
+struct SellItemEntry {
+    index: usize,
+    item_id: String,
+    sell_price: u32,
+}
+
+#[derive(Component)]
+struct BuyPanelRoot;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShopMode {
+    Buy,
+    Sell,
+}
+
 #[derive(Resource, Debug)]
 struct ShopState {
     cursor: usize,
     total_items: usize,
     message: String,
     message_timer: Timer,
+    mode: ShopMode,
+    sell_cursor: usize,
+    sell_total: usize,
 }
 
 impl Default for ShopState {
@@ -52,6 +77,9 @@ impl Default for ShopState {
             total_items: 0,
             message: String::new(),
             message_timer: Timer::from_seconds(2.0, TimerMode::Once),
+            mode: ShopMode::Buy,
+            sell_cursor: 0,
+            sell_total: 0,
         }
     }
 }
@@ -68,6 +96,7 @@ impl Plugin for ShopPlugin {
                     .chain()
                     .run_if(in_state(GameState::Shop)),
             )
+            .add_systems(Update, rebuild_sell_panel.run_if(in_state(GameState::Shop)))
             .add_systems(OnExit(GameState::Shop), cleanup_shop);
     }
 }
@@ -167,8 +196,24 @@ fn setup_shop_ui(
                 },
             ));
 
-            // Item list
+            // Mode indicator
             root.spawn((
+                ShopModeText,
+                Text::new("[Tab] Switch Mode: BUY"),
+                TextFont {
+                    font_size: 16.0,
+                    ..default()
+                },
+                TextColor(BRIGHT_GOLD),
+                Node {
+                    margin: UiRect::bottom(Val::Px(4.0)),
+                    ..default()
+                },
+            ));
+
+            // Item list (Buy panel)
+            root.spawn((
+                BuyPanelRoot,
                 Node {
                     width: Val::Percent(100.0),
                     flex_direction: FlexDirection::Column,
@@ -214,9 +259,24 @@ fn setup_shop_ui(
                 }
             });
 
+            // Sell panel (hidden initially)
+            root.spawn((
+                SellPanelRoot,
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Column,
+                    padding: UiRect::all(Val::Px(14.0)),
+                    row_gap: Val::Px(4.0),
+                    overflow: Overflow::clip(),
+                    display: Display::None,
+                    ..default()
+                },
+                BackgroundColor(PANEL_BG),
+            ));
+
             // Hint
             root.spawn((
-                Text::new("[Up/Down] Select  [Enter] Buy  [Escape] Leave"),
+                Text::new("[Up/Down] Select  [Enter] Buy/Sell  [Tab] Mode  [Esc] Leave"),
                 TextFont {
                     font_size: 16.0,
                     ..default()
@@ -254,72 +314,168 @@ fn format_stat_bonus(def: &crate::data::items::EquipmentDefinition) -> String {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn shop_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut shop_state: ResMut<ShopState>,
     mut party: ResMut<Party>,
     mut next_state: ResMut<NextState<GameState>>,
     mut entries: Query<(&ShopItemEntry, &mut Text, &mut TextColor)>,
-    mut gold_text: Query<&mut Text, (With<ShopGoldText>, Without<ShopItemEntry>)>,
+    mut sell_entries: Query<(&SellItemEntry, &mut Text, &mut TextColor), Without<ShopItemEntry>>,
+    mut gold_text: Query<
+        &mut Text,
+        (
+            With<ShopGoldText>,
+            Without<ShopItemEntry>,
+            Without<SellItemEntry>,
+            Without<ShopModeText>,
+        ),
+    >,
+    mut mode_text: Query<
+        &mut Text,
+        (
+            With<ShopModeText>,
+            Without<ShopGoldText>,
+            Without<ShopItemEntry>,
+            Without<SellItemEntry>,
+        ),
+    >,
+    mut buy_panel: Query<&mut Node, (With<BuyPanelRoot>, Without<SellPanelRoot>)>,
+    mut sell_panel: Query<&mut Node, (With<SellPanelRoot>, Without<BuyPanelRoot>)>,
 ) {
-    let total = shop_state.total_items;
+    // Tab to switch mode
+    if keys.just_pressed(KeyCode::Tab) {
+        shop_state.mode = match shop_state.mode {
+            ShopMode::Buy => ShopMode::Sell,
+            ShopMode::Sell => ShopMode::Buy,
+        };
 
-    if total > 0 {
-        if keys.just_pressed(KeyCode::ArrowUp) {
-            shop_state.cursor = if shop_state.cursor == 0 {
-                total - 1
+        // Toggle panel visibility
+        for mut node in &mut buy_panel {
+            node.display = if shop_state.mode == ShopMode::Buy {
+                Display::Flex
             } else {
-                shop_state.cursor - 1
+                Display::None
             };
         }
-        if keys.just_pressed(KeyCode::ArrowDown) {
-            shop_state.cursor = (shop_state.cursor + 1) % total;
+        for mut node in &mut sell_panel {
+            node.display = if shop_state.mode == ShopMode::Sell {
+                Display::Flex
+            } else {
+                Display::None
+            };
         }
 
-        // Update visual
-        for (entry, mut text, mut color) in &mut entries {
-            let is_sel = entry.index == shop_state.cursor;
-            let affordable = party.gold >= entry.cost;
-            let prefix = if is_sel { "> " } else { "  " };
+        // Update mode text
+        if let Ok(mut mt) = mode_text.get_single_mut() {
+            let label = match shop_state.mode {
+                ShopMode::Buy => "BUY",
+                ShopMode::Sell => "SELL",
+            };
+            **mt = format!("[Tab] Switch Mode: {label}");
+        }
+    }
 
-            // Reconstruct the display text from the entry data
-            let base = text
-                .as_str()
-                .trim_start_matches("> ")
-                .trim_start_matches("  ");
-            **text = format!("{prefix}{base}");
+    match shop_state.mode {
+        ShopMode::Buy => {
+            let total = shop_state.total_items;
+            if total > 0 {
+                if keys.just_pressed(KeyCode::ArrowUp) {
+                    shop_state.cursor = if shop_state.cursor == 0 {
+                        total - 1
+                    } else {
+                        shop_state.cursor - 1
+                    };
+                }
+                if keys.just_pressed(KeyCode::ArrowDown) {
+                    shop_state.cursor = (shop_state.cursor + 1) % total;
+                }
 
-            if is_sel {
-                *color = TextColor(BRIGHT_GOLD);
-            } else if affordable {
-                *color = TextColor(DIM_TEXT);
-            } else {
-                *color = TextColor(RED_TEXT);
+                for (entry, mut text, mut color) in &mut entries {
+                    let is_sel = entry.index == shop_state.cursor;
+                    let affordable = party.gold >= entry.cost;
+                    let prefix = if is_sel { "> " } else { "  " };
+                    let base = text
+                        .as_str()
+                        .trim_start_matches("> ")
+                        .trim_start_matches("  ");
+                    **text = format!("{prefix}{base}");
+                    if is_sel {
+                        *color = TextColor(BRIGHT_GOLD);
+                    } else if affordable {
+                        *color = TextColor(DIM_TEXT);
+                    } else {
+                        *color = TextColor(RED_TEXT);
+                    }
+                }
+
+                if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) {
+                    let selected: Option<(String, u32)> = entries
+                        .iter()
+                        .find(|(e, _, _)| e.index == shop_state.cursor)
+                        .map(|(e, _, _)| (e.item_id.clone(), e.cost));
+
+                    if let Some((item_id, cost)) = selected {
+                        if party.gold >= cost {
+                            party.gold -= cost;
+                            party.inventory.push(item_id.clone());
+                            shop_state.message = format!("Bought {}!", item_id);
+                            shop_state.message_timer.reset();
+
+                            if let Ok(mut gt) = gold_text.get_single_mut() {
+                                **gt = format!("Gold: {}", party.gold);
+                            }
+                        } else {
+                            shop_state.message = "Not enough gold!".into();
+                            shop_state.message_timer.reset();
+                        }
+                    }
+                }
             }
         }
+        ShopMode::Sell => {
+            let total = shop_state.sell_total;
+            if total > 0 {
+                if keys.just_pressed(KeyCode::ArrowUp) {
+                    shop_state.sell_cursor = if shop_state.sell_cursor == 0 {
+                        total - 1
+                    } else {
+                        shop_state.sell_cursor - 1
+                    };
+                }
+                if keys.just_pressed(KeyCode::ArrowDown) {
+                    shop_state.sell_cursor = (shop_state.sell_cursor + 1) % total;
+                }
 
-        // Buy item
-        if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) {
-            let selected: Option<(String, u32)> = entries
-                .iter()
-                .find(|(e, _, _)| e.index == shop_state.cursor)
-                .map(|(e, _, _)| (e.item_id.clone(), e.cost));
+                for (entry, mut text, mut color) in &mut sell_entries {
+                    let is_sel = entry.index == shop_state.sell_cursor;
+                    let prefix = if is_sel { "> " } else { "  " };
+                    let base = text
+                        .as_str()
+                        .trim_start_matches("> ")
+                        .trim_start_matches("  ");
+                    **text = format!("{prefix}{base}");
+                    *color = TextColor(if is_sel { BRIGHT_GOLD } else { DIM_TEXT });
+                }
 
-            if let Some((item_id, cost)) = selected {
-                if party.gold >= cost {
-                    party.gold -= cost;
-                    party.inventory.push(item_id.clone());
-                    shop_state.message = format!("Bought {}!", item_id);
-                    shop_state.message_timer.reset();
+                if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) {
+                    let selected: Option<(String, u32)> = sell_entries
+                        .iter()
+                        .find(|(e, _, _)| e.index == shop_state.sell_cursor)
+                        .map(|(e, _, _)| (e.item_id.clone(), e.sell_price));
 
-                    // Update gold display
-                    if let Ok(mut gt) = gold_text.get_single_mut() {
-                        **gt = format!("Gold: {}", party.gold);
+                    if let Some((item_id, sell_price)) = selected
+                        && let Some(pos) = party.inventory.iter().position(|id| *id == item_id)
+                    {
+                        party.inventory.remove(pos);
+                        party.gold += sell_price;
+                        shop_state.message = format!("Sold for {}g!", sell_price);
+                        shop_state.message_timer.reset();
+
+                        if let Ok(mut gt) = gold_text.get_single_mut() {
+                            **gt = format!("Gold: {}", party.gold);
+                        }
                     }
-                } else {
-                    shop_state.message = "Not enough gold!".into();
-                    shop_state.message_timer.reset();
                 }
             }
         }
@@ -344,6 +500,96 @@ fn update_shop_message(
             **text = shop_state.message.clone();
         }
     }
+}
+
+fn rebuild_sell_panel(
+    mut commands: Commands,
+    party: Res<Party>,
+    game_data: Res<GameData>,
+    mut shop_state: ResMut<ShopState>,
+    sell_panel: Query<Entity, With<SellPanelRoot>>,
+    existing_sell_entries: Query<Entity, With<SellItemEntry>>,
+) {
+    if !party.is_changed() && !shop_state.is_changed() {
+        return;
+    }
+
+    // Despawn old sell entries
+    for entity in &existing_sell_entries {
+        commands.entity(entity).despawn();
+    }
+
+    let Ok(sell_root) = sell_panel.get_single() else {
+        return;
+    };
+
+    // Build sell list from party inventory
+    let mut sell_items: Vec<(String, String, u32)> = Vec::new(); // (id, name, sell_price)
+    let mut seen = std::collections::HashSet::new();
+    for item_id in &party.inventory {
+        if seen.contains(item_id) {
+            continue;
+        }
+        seen.insert(item_id.clone());
+        let count = party.inventory.iter().filter(|id| *id == item_id).count();
+
+        if let Some(def) = game_data.items.get(item_id) {
+            let sell_price = def.cost / 2;
+            sell_items.push((
+                item_id.clone(),
+                format!("{} x{} - Sell: {}g", def.name, count, sell_price),
+                sell_price,
+            ));
+        } else if let Some(def) = game_data.equipment.get(item_id) {
+            let sell_price = def.cost / 2;
+            sell_items.push((
+                item_id.clone(),
+                format!("{} x{} - Sell: {}g", def.name, count, sell_price),
+                sell_price,
+            ));
+        }
+    }
+
+    shop_state.sell_total = sell_items.len();
+    if shop_state.sell_cursor >= shop_state.sell_total && shop_state.sell_total > 0 {
+        shop_state.sell_cursor = shop_state.sell_total - 1;
+    }
+
+    commands.entity(sell_root).with_children(|list| {
+        if sell_items.is_empty() {
+            list.spawn((
+                SellItemEntry {
+                    index: 0,
+                    item_id: String::new(),
+                    sell_price: 0,
+                },
+                Text::new("  No items to sell."),
+                TextFont {
+                    font_size: 18.0,
+                    ..default()
+                },
+                TextColor(DIM_TEXT),
+            ));
+        } else {
+            for (i, (id, label, price)) in sell_items.iter().enumerate() {
+                let is_sel = i == shop_state.sell_cursor;
+                let prefix = if is_sel { "> " } else { "  " };
+                list.spawn((
+                    SellItemEntry {
+                        index: i,
+                        item_id: id.clone(),
+                        sell_price: *price,
+                    },
+                    Text::new(format!("{prefix}{label}")),
+                    TextFont {
+                        font_size: 18.0,
+                        ..default()
+                    },
+                    TextColor(if is_sel { BRIGHT_GOLD } else { DIM_TEXT }),
+                ));
+            }
+        }
+    });
 }
 
 fn cleanup_shop(

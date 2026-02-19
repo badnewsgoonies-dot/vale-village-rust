@@ -6,6 +6,7 @@ use rand::Rng;
 
 use super::core_plugin::{GameData, GameState, Party};
 use super::overworld::BattleReturnPosition;
+use super::save::{SaveData, SaveSystem};
 use crate::battle::types::{BattlePhase, StartBattleEvent};
 use crate::components::world::GridPosition;
 use crate::data::enemies::EnemyDefinition;
@@ -46,6 +47,7 @@ pub struct TowerState {
     pub cursor: usize,
     #[allow(dead_code)]
     pub active: bool,
+    pub needs_autosave: bool,
 }
 
 impl Default for TowerState {
@@ -56,6 +58,7 @@ impl Default for TowerState {
             team_selected: false,
             cursor: 0,
             active: false,
+            needs_autosave: false,
         }
     }
 }
@@ -96,7 +99,12 @@ impl Plugin for TowerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TowerState>()
             .add_systems(OnEnter(GameState::Tower), setup_tower)
-            .add_systems(Update, tower_input.run_if(in_state(GameState::Tower)))
+            .add_systems(
+                Update,
+                (tower_input, tower_autosave)
+                    .chain()
+                    .run_if(in_state(GameState::Tower)),
+            )
             .add_systems(OnExit(GameState::Tower), cleanup_tower);
     }
 }
@@ -313,6 +321,9 @@ fn tower_input(
 
                         // Floor rewards: gold per floor
                         party.gold += tower_state.current_floor * 50;
+
+                        // Trigger auto-save on floor transition
+                        tower_state.needs_autosave = true;
                     }
                 }
             }
@@ -386,6 +397,39 @@ fn build_tower_encounter(
     }
 
     enemies
+}
+
+// ── Auto-save ─────────────────────────────────────────────────────────
+
+fn tower_autosave(world: &mut World) {
+    let needs_save = world
+        .get_resource::<TowerState>()
+        .map(|ts| ts.needs_autosave)
+        .unwrap_or(false);
+
+    if !needs_save {
+        return;
+    }
+
+    // Clear the flag
+    if let Some(mut tower_state) = world.get_resource_mut::<TowerState>() {
+        tower_state.needs_autosave = false;
+    }
+
+    let save_data = SaveData::from_game_state(world);
+    let result = {
+        let save_system = world.resource::<SaveSystem>();
+        save_system.save(0, &save_data)
+    };
+
+    match result {
+        Ok(()) => {
+            info!("Tower auto-save to slot 0 successful.");
+        }
+        Err(err) => {
+            warn!("Tower auto-save failed: {}", err);
+        }
+    }
 }
 
 // ── Cleanup ───────────────────────────────────────────────────────────
