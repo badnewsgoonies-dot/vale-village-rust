@@ -3,16 +3,31 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::plugins::core_plugin::Party;
+use crate::battle::types::{BattleUnit, UnitSide};
+use crate::components::world::{GridPosition, Player};
+use crate::plugins::core_plugin::{GameData, GameState, Party};
 
 // ---------------------------------------------------------------------------
 // Save file structure
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartyMemberSaveData {
+    pub unit_id: String,
+    pub hp: i32,
+    pub pp: i32,
+    pub level: u8,
+    pub xp: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SaveData {
     pub version: u32,
+    /// Full party resource snapshot (roster, inventory, equipment).
     pub party: Party,
+    /// Per-party-member runtime stats (HP/PP/level/XP).
+    pub party_data: Vec<PartyMemberSaveData>,
     /// Per-unit level/xp state: unit_id -> (level, xp).
     pub unit_levels: HashMap<String, (u8, u32)>,
     /// Djinn ownership: djinn_id -> unit_id.
@@ -22,10 +37,11 @@ pub struct SaveData {
     /// Current map the player is on.
     pub current_map: String,
     /// Player position on the current map.
-    pub player_x: i32,
-    pub player_y: i32,
+    pub player_position: GridPosition,
     /// Tower floor progress.
     pub tower_floor: u8,
+    /// Gold amount (mirrors Party::gold for quick access).
+    pub gold: u32,
     /// Play time in seconds.
     pub play_time_secs: f64,
 }
@@ -35,14 +51,202 @@ impl Default for SaveData {
         Self {
             version: 1,
             party: Party::default(),
+            party_data: Vec::new(),
             unit_levels: HashMap::new(),
             djinn_assignments: HashMap::new(),
             story_flags: HashMap::new(),
             current_map: "village".into(),
-            player_x: 5,
-            player_y: 5,
+            player_position: GridPosition::new(5, 5),
             tower_floor: 0,
+            gold: Party::default().gold,
             play_time_secs: 0.0,
+        }
+    }
+}
+
+impl SaveData {
+    /// Build save data from the current Bevy world/resources.
+    pub fn from_game_state(world: &mut World) -> Self {
+        let party = world
+            .get_resource::<Party>()
+            .cloned()
+            .unwrap_or_default();
+        let gold = party.gold;
+
+        let current_map = world
+            .get_resource::<State<GameState>>()
+            .map(|state| format!("{:?}", state.get()))
+            .unwrap_or_else(|| "Overworld".to_string());
+
+        let play_time_secs = world
+            .get_resource::<Time>()
+            .map(|time| time.elapsed_secs_f64())
+            .unwrap_or(0.0);
+
+        let player_position = {
+            let mut query = world.query_filtered::<&GridPosition, With<Player>>();
+            query
+                .iter(world)
+                .next()
+                .copied()
+                .unwrap_or(GridPosition::new(5, 5))
+        };
+
+        let (name_to_unit_id, base_stats_by_id) = world
+            .get_resource::<GameData>()
+            .map(|game_data| {
+                let name_to_unit_id = game_data
+                    .units
+                    .iter()
+                    .map(|(id, def)| (def.name.clone(), id.clone()))
+                    .collect::<HashMap<_, _>>();
+                let base_stats_by_id = game_data
+                    .units
+                    .iter()
+                    .map(|(id, def)| (id.clone(), (def.base_hp, def.base_pp)))
+                    .collect::<HashMap<_, _>>();
+                (name_to_unit_id, base_stats_by_id)
+            })
+            .unwrap_or_default();
+
+        // Party currently stores roster/economy. If player battle units are live,
+        // prefer their runtime HP/PP/level/XP values for the save snapshot.
+        let mut runtime_stats_by_unit_id = HashMap::<String, PartyMemberSaveData>::new();
+        {
+            let mut battle_query = world.query::<&BattleUnit>();
+            for unit in battle_query.iter(world).filter(|u| u.side == UnitSide::Player) {
+                if let Some(unit_id) = name_to_unit_id.get(&unit.name) {
+                    runtime_stats_by_unit_id.insert(
+                        unit_id.clone(),
+                        PartyMemberSaveData {
+                            unit_id: unit_id.clone(),
+                            hp: unit.hp,
+                            pp: unit.pp,
+                            level: unit.level,
+                            xp: unit.xp,
+                        },
+                    );
+                }
+            }
+        }
+
+        let mut member_ids = Vec::<String>::new();
+        for unit_id in party.active.iter().chain(party.bench.iter()) {
+            if !member_ids.iter().any(|id| id == unit_id) {
+                member_ids.push(unit_id.clone());
+            }
+        }
+
+        let party_data = member_ids
+            .into_iter()
+            .map(|unit_id| {
+                if let Some(runtime) = runtime_stats_by_unit_id.get(&unit_id) {
+                    runtime.clone()
+                } else {
+                    let (hp, pp) = base_stats_by_id
+                        .get(&unit_id)
+                        .copied()
+                        .unwrap_or((100, 30));
+                    PartyMemberSaveData {
+                        unit_id: unit_id.clone(),
+                        hp,
+                        pp,
+                        level: 1,
+                        xp: 0,
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let unit_levels = party_data
+            .iter()
+            .map(|member| (member.unit_id.clone(), (member.level, member.xp)))
+            .collect::<HashMap<_, _>>();
+
+        Self {
+            version: 1,
+            party,
+            party_data,
+            unit_levels,
+            djinn_assignments: HashMap::new(),
+            story_flags: HashMap::new(),
+            current_map,
+            player_position,
+            tower_floor: 0,
+            gold,
+            play_time_secs,
+        }
+    }
+
+    /// Apply this save data back into the active Bevy world/resources.
+    pub fn apply_to_game(&self, world: &mut World) {
+        let mut restored_party = self.party.clone();
+        restored_party.gold = self.gold;
+
+        if let Some(mut party) = world.get_resource_mut::<Party>() {
+            *party = restored_party;
+        } else {
+            world.insert_resource(restored_party);
+        }
+
+        let player_entities = {
+            let mut query = world.query_filtered::<Entity, With<Player>>();
+            query.iter(world).collect::<Vec<_>>()
+        };
+
+        for entity in player_entities {
+            if let Some(mut grid_pos) = world.get_mut::<GridPosition>(entity) {
+                *grid_pos = self.player_position;
+            }
+
+            if let Some(mut transform) = world.get_mut::<Transform>(entity) {
+                const TILE_SIZE: f32 = 32.0;
+                transform.translation.x = self.player_position.x as f32 * TILE_SIZE;
+                transform.translation.y = -(self.player_position.y as f32) * TILE_SIZE;
+            }
+        }
+
+        let name_to_unit_id = world
+            .get_resource::<GameData>()
+            .map(|game_data| {
+                game_data
+                    .units
+                    .iter()
+                    .map(|(id, def)| (def.name.clone(), id.clone()))
+                    .collect::<HashMap<_, _>>()
+            })
+            .unwrap_or_default();
+
+        let stats_by_unit_id = self
+            .party_data
+            .iter()
+            .map(|member| (member.unit_id.clone(), member))
+            .collect::<HashMap<_, _>>();
+
+        let battle_entities = {
+            let mut query = world.query_filtered::<Entity, With<BattleUnit>>();
+            query.iter(world).collect::<Vec<_>>()
+        };
+
+        for entity in battle_entities {
+            let Some(mut unit) = world.get_mut::<BattleUnit>(entity) else {
+                continue;
+            };
+            if unit.side != UnitSide::Player {
+                continue;
+            }
+
+            let Some(unit_id) = name_to_unit_id.get(&unit.name) else {
+                continue;
+            };
+            let Some(saved_stats) = stats_by_unit_id.get(unit_id) else {
+                continue;
+            };
+
+            unit.hp = saved_stats.hp.clamp(0, unit.max_hp);
+            unit.pp = saved_stats.pp.clamp(0, unit.max_pp);
+            unit.level = saved_stats.level;
+            unit.xp = saved_stats.xp;
         }
     }
 }

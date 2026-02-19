@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use bevy::audio::{AudioSource, PlaybackSettings as BevyPlaybackSettings, Volume};
 
+use crate::plugins::core_plugin::GameState;
+
 // ---------------------------------------------------------------------------
 // Audio settings resource
 // ---------------------------------------------------------------------------
@@ -56,6 +58,10 @@ pub struct SfxHandles {
 #[derive(Component)]
 pub struct BgmMarker;
 
+/// Request to play an SFX by key name (for example "menu_select").
+#[derive(Event, Debug, Clone)]
+pub struct PlaySfxEvent(pub String);
+
 // ---------------------------------------------------------------------------
 // Audio plugin
 // ---------------------------------------------------------------------------
@@ -64,9 +70,79 @@ pub struct GameAudioPlugin;
 
 impl Plugin for GameAudioPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(AudioSettings::default());
-        app.insert_resource(MusicTracks::default());
-        app.insert_resource(SfxHandles::default());
+        app.insert_resource(AudioSettings::default())
+            .insert_resource(MusicTracks::default())
+            .insert_resource(SfxHandles::default())
+            .add_event::<PlaySfxEvent>()
+            .add_systems(OnEnter(GameState::MainMenu), play_title_theme_on_enter)
+            .add_systems(OnEnter(GameState::Overworld), play_overworld_theme_on_enter)
+            .add_systems(OnEnter(GameState::Battle), play_battle_theme_on_enter)
+            .add_systems(OnExit(GameState::Loading), stop_bgm_on_state_exit)
+            .add_systems(OnExit(GameState::MainMenu), stop_bgm_on_state_exit)
+            .add_systems(OnExit(GameState::Overworld), stop_bgm_on_state_exit)
+            .add_systems(OnExit(GameState::Battle), stop_bgm_on_state_exit)
+            .add_systems(OnExit(GameState::Shop), stop_bgm_on_state_exit)
+            .add_systems(OnExit(GameState::Inventory), stop_bgm_on_state_exit)
+            .add_systems(OnExit(GameState::Settings), stop_bgm_on_state_exit)
+            .add_systems(OnExit(GameState::Paused), stop_bgm_on_state_exit)
+            .add_systems(Update, play_sfx_events);
+    }
+}
+
+fn play_title_theme_on_enter(
+    mut commands: Commands,
+    tracks: Res<MusicTracks>,
+    settings: Res<AudioSettings>,
+    bgm_query: Query<Entity, With<BgmMarker>>,
+) {
+    play_bgm(&mut commands, &bgm_query, &tracks.title_theme, &settings);
+}
+
+fn play_overworld_theme_on_enter(
+    mut commands: Commands,
+    tracks: Res<MusicTracks>,
+    settings: Res<AudioSettings>,
+    bgm_query: Query<Entity, With<BgmMarker>>,
+) {
+    play_bgm(&mut commands, &bgm_query, &tracks.overworld_theme, &settings);
+}
+
+fn play_battle_theme_on_enter(
+    mut commands: Commands,
+    tracks: Res<MusicTracks>,
+    settings: Res<AudioSettings>,
+    bgm_query: Query<Entity, With<BgmMarker>>,
+) {
+    play_bgm(&mut commands, &bgm_query, &tracks.battle_theme, &settings);
+}
+
+fn stop_bgm_on_state_exit(mut commands: Commands, bgm_query: Query<Entity, With<BgmMarker>>) {
+    stop_bgm(&mut commands, &bgm_query);
+}
+
+fn play_sfx_events(
+    mut commands: Commands,
+    mut events: EventReader<PlaySfxEvent>,
+    sfx: Res<SfxHandles>,
+    settings: Res<AudioSettings>,
+) {
+    for event in events.read() {
+        let handle = match event.0.as_str() {
+            "menu_select" => &sfx.menu_select,
+            "menu_cancel" => &sfx.menu_cancel,
+            "attack_hit" => &sfx.attack_hit,
+            "magic_cast" => &sfx.magic_cast,
+            "heal" => &sfx.heal,
+            "level_up" => &sfx.level_up,
+            "item_pickup" => &sfx.item_pickup,
+            "door_open" => &sfx.door_open,
+            key => {
+                warn!("Unknown SFX key: {key}");
+                continue;
+            }
+        };
+
+        let _ = play_sfx(&mut commands, handle, &settings);
     }
 }
 

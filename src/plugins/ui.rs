@@ -6,8 +6,9 @@
 
 use bevy::prelude::*;
 
-use super::core_plugin::GameState;
 use super::audio::AudioSettings;
+use super::core_plugin::GameState;
+use super::save::{SaveData, SaveSystem};
 
 // ── Color palette (Golden Sun aesthetic) ──────────────────────────────
 const GOLD: Color = Color::srgb(0.85, 0.65, 0.13);
@@ -37,6 +38,9 @@ struct PauseMenuRoot;
 struct PauseMenuItem {
     index: usize,
 }
+
+#[derive(Component)]
+struct PauseMenuFeedbackText;
 
 #[derive(Component)]
 struct SettingsRoot;
@@ -69,6 +73,21 @@ impl MenuCursor {
             selected: 0,
             count,
             cooldown: Timer::from_seconds(0.15, TimerMode::Once),
+        }
+    }
+}
+
+#[derive(Resource, Debug)]
+struct PauseMenuFeedback {
+    message: Option<String>,
+    timer: Timer,
+}
+
+impl Default for PauseMenuFeedback {
+    fn default() -> Self {
+        Self {
+            message: None,
+            timer: Timer::from_seconds(1.5, TimerMode::Once),
         }
     }
 }
@@ -130,7 +149,14 @@ impl Plugin for UiPlugin {
                 Update,
                 pause_menu_input.run_if(in_state(GameState::Paused)),
             )
-            .add_systems(OnExit(GameState::Paused), cleanup::<PauseMenuRoot>)
+            .add_systems(
+                Update,
+                pause_menu_feedback_update.run_if(in_state(GameState::Paused)),
+            )
+            .add_systems(
+                OnExit(GameState::Paused),
+                (cleanup::<PauseMenuRoot>, clear_pause_menu_feedback),
+            )
             // Settings
             .add_systems(OnEnter(GameState::Settings), setup_settings)
             .add_systems(
@@ -384,6 +410,7 @@ const PAUSE_ITEMS: &[&str] = &["Resume", "Save", "Load", "Settings", "Quit to Ti
 
 fn setup_pause_menu(mut commands: Commands) {
     commands.insert_resource(MenuCursor::new(PAUSE_ITEMS.len()));
+    commands.insert_resource(PauseMenuFeedback::default());
 
     commands
         .spawn((
@@ -441,61 +468,174 @@ fn setup_pause_menu(mut commands: Commands) {
                             },
                         ));
                     }
+
+                    menu.spawn((
+                        PauseMenuFeedbackText,
+                        Text::new(""),
+                        TextFont {
+                            font_size: 18.0,
+                            ..default()
+                        },
+                        TextColor(BRIGHT_GOLD),
+                        Node {
+                            min_height: Val::Px(22.0),
+                            margin: UiRect::top(Val::Px(14.0)),
+                            ..default()
+                        },
+                    ));
                 });
         });
 }
 
-fn pause_menu_input(
-    keys: Res<ButtonInput<KeyCode>>,
-    time: Res<Time>,
-    mut cursor: ResMut<MenuCursor>,
-    mut transition: ResMut<ScreenTransition>,
-    mut items: Query<(&PauseMenuItem, &mut TextColor)>,
-) {
-    if transition.active {
+fn pause_menu_input(world: &mut World) {
+    if world.resource::<ScreenTransition>().active {
         return;
     }
 
-    cursor.cooldown.tick(time.delta());
+    let delta = world.resource::<Time>().delta();
+    let (up_pressed, down_pressed, escape_pressed, confirm_pressed) = {
+        let keys = world.resource::<ButtonInput<KeyCode>>();
+        (
+            keys.just_pressed(KeyCode::ArrowUp) || keys.just_pressed(KeyCode::KeyW),
+            keys.just_pressed(KeyCode::ArrowDown) || keys.just_pressed(KeyCode::KeyS),
+            keys.just_pressed(KeyCode::Escape),
+            keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space),
+        )
+    };
 
-    if cursor.cooldown.finished() {
-        if keys.just_pressed(KeyCode::ArrowUp) || keys.just_pressed(KeyCode::KeyW) {
-            cursor.selected = if cursor.selected == 0 {
-                cursor.count - 1
+    {
+        let mut cursor = world.resource_mut::<MenuCursor>();
+        cursor.cooldown.tick(delta);
+
+        if cursor.cooldown.finished() {
+            if up_pressed {
+                cursor.selected = if cursor.selected == 0 {
+                    cursor.count - 1
+                } else {
+                    cursor.selected - 1
+                };
+                cursor.cooldown.reset();
+            }
+            if down_pressed {
+                cursor.selected = (cursor.selected + 1) % cursor.count;
+                cursor.cooldown.reset();
+            }
+        }
+    }
+
+    let selected = world.resource::<MenuCursor>().selected;
+
+    {
+        let mut items = world.query::<(&PauseMenuItem, &mut TextColor)>();
+        for (item, mut color) in items.iter_mut(world) {
+            color.0 = if item.index == selected {
+                BRIGHT_GOLD
             } else {
-                cursor.selected - 1
+                DIM_TEXT
             };
-            cursor.cooldown.reset();
-        }
-        if keys.just_pressed(KeyCode::ArrowDown) || keys.just_pressed(KeyCode::KeyS) {
-            cursor.selected = (cursor.selected + 1) % cursor.count;
-            cursor.cooldown.reset();
         }
     }
 
-    for (item, mut color) in &mut items {
-        color.0 = if item.index == cursor.selected {
-            BRIGHT_GOLD
-        } else {
-            DIM_TEXT
-        };
-    }
-
-    if keys.just_pressed(KeyCode::Escape) {
+    if escape_pressed {
+        let mut transition = world.resource_mut::<ScreenTransition>();
         start_transition(&mut transition, GameState::Overworld);
         return;
     }
 
-    if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) {
-        match cursor.selected {
-            0 => start_transition(&mut transition, GameState::Overworld),
-            1 => { /* Save — stub */ }
-            2 => { /* Load — stub */ }
-            3 => start_transition(&mut transition, GameState::Settings),
-            4 => start_transition(&mut transition, GameState::MainMenu),
-            _ => {}
+    if !confirm_pressed {
+        return;
+    }
+
+    match selected {
+        0 => {
+            let mut transition = world.resource_mut::<ScreenTransition>();
+            start_transition(&mut transition, GameState::Overworld);
+        }
+        1 => {
+            let save_data = SaveData::from_game_state(world);
+            let result = {
+                let save_system = world.resource::<SaveSystem>();
+                save_system.save(1, &save_data)
+            };
+
+            match result {
+                Ok(()) => set_pause_menu_feedback(world, "Saved!"),
+                Err(error) => {
+                    warn!("Failed to save slot 1: {}", error);
+                    set_pause_menu_feedback(world, format!("Save failed: {}", error));
+                }
+            }
+        }
+        2 => {
+            let result = {
+                let save_system = world.resource::<SaveSystem>();
+                save_system.load(1)
+            };
+
+            match result {
+                Ok(save_data) => {
+                    save_data.apply_to_game(world);
+                    set_pause_menu_feedback(world, "Loaded!");
+                }
+                Err(error) => {
+                    warn!("Failed to load slot 1: {}", error);
+                    set_pause_menu_feedback(world, format!("Load failed: {}", error));
+                }
+            }
+        }
+        3 => {
+            let mut transition = world.resource_mut::<ScreenTransition>();
+            start_transition(&mut transition, GameState::Settings);
+        }
+        4 => {
+            let mut transition = world.resource_mut::<ScreenTransition>();
+            start_transition(&mut transition, GameState::MainMenu);
+        }
+        _ => {}
+    }
+}
+
+fn set_pause_menu_feedback(world: &mut World, message: impl Into<String>) {
+    let message = message.into();
+    if let Some(mut feedback) = world.get_resource_mut::<PauseMenuFeedback>() {
+        feedback.message = Some(message);
+        feedback.timer = Timer::from_seconds(1.5, TimerMode::Once);
+    } else {
+        world.insert_resource(PauseMenuFeedback {
+            message: Some(message),
+            timer: Timer::from_seconds(1.5, TimerMode::Once),
+        });
+    }
+}
+
+fn pause_menu_feedback_update(
+    time: Res<Time>,
+    feedback: Option<ResMut<PauseMenuFeedback>>,
+    mut text_query: Query<&mut Text, With<PauseMenuFeedbackText>>,
+) {
+    let Ok(mut feedback_text) = text_query.get_single_mut() else {
+        return;
+    };
+
+    let mut text_value = String::new();
+    if let Some(mut feedback) = feedback {
+        if feedback.message.is_some() {
+            feedback.timer.tick(time.delta());
+            if feedback.timer.finished() {
+                feedback.message = None;
+            }
+        }
+
+        if let Some(message) = feedback.message.as_ref() {
+            text_value = message.clone();
         }
     }
+
+    **feedback_text = text_value;
+}
+
+fn clear_pause_menu_feedback(mut commands: Commands) {
+    commands.remove_resource::<PauseMenuFeedback>();
 }
 
 // ══════════════════════════════════════════════════════════════════════
