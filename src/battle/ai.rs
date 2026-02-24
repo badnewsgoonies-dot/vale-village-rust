@@ -38,10 +38,10 @@ pub fn enemy_choose_action(
 
     // 1. Emergency healing
     let hp_pct = enemy.hp as f32 / enemy.max_hp.max(1) as f32;
-    if hp_pct < 0.30 {
-        if let Some(action) = try_heal(enemy, &alive_allies, &abilities) {
-            return action;
-        }
+    if hp_pct < 0.30
+        && let Some(action) = try_heal(enemy, &alive_allies, &abilities)
+    {
+        return action;
     }
 
     // 2. Usable abilities (affordable, have valid targets)

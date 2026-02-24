@@ -25,6 +25,7 @@ pub enum GameState {
     Inventory,
     Settings,
     Paused,
+    Tower,
 }
 
 // ---------------------------------------------------------------------------

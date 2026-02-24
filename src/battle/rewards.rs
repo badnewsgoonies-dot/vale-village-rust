@@ -140,4 +140,74 @@ mod tests {
         assert!((flee_chance(50.0, 10.0) - 0.90).abs() < 0.001);
         assert!((flee_chance(5.0, 50.0) - 0.10).abs() < 0.001);
     }
+
+    #[test]
+    fn test_distribute_rewards_levels_up() {
+        use crate::battle::types::{Element, UnitSide};
+        let mut party = vec![BattleUnit {
+            id: 1,
+            name: "Adept".into(),
+            side: UnitSide::Player,
+            element: Element::Venus,
+            level: 1,
+            hp: 100,
+            max_hp: 100,
+            pp: 30,
+            max_pp: 30,
+            atk: 10,
+            def: 8,
+            mag: 12,
+            spd: 9,
+            luck: 5,
+            status_effects: vec![],
+            ability_ids: vec![],
+            djinn_ids: vec![],
+            damage_taken: 0,
+            damage_dealt: 0,
+            xp: 0,
+            growth_rates: GrowthRates {
+                hp: 8,
+                pp: 3,
+                atk: 2,
+                def: 2,
+                mag: 3,
+                spd: 1,
+            },
+        }];
+
+        let rewards = calculate_battle_rewards(&[(150, 50)], 1, 1);
+        let level_ups = distribute_rewards(&mut party, &rewards);
+
+        assert_eq!(party[0].level, 2);
+        assert_eq!(party[0].xp, 150);
+        assert!(!level_ups.is_empty());
+        assert_eq!(level_ups[0].old_level, 1);
+        assert_eq!(level_ups[0].new_level, 2);
+    }
+
+    #[test]
+    fn test_calculate_battle_rewards_gold() {
+        let rewards = calculate_battle_rewards(&[(100, 50), (80, 30)], 2, 2);
+        assert_eq!(rewards.total_xp, 180);
+        assert_eq!(rewards.total_gold, 80);
+        assert_eq!(rewards.xp_per_unit, 90);
+        assert!(rewards.all_survived);
+        assert_eq!(rewards.enemies_defeated, 2);
+    }
+
+    #[test]
+    fn test_stat_gains_multi_level() {
+        let growth = GrowthRates {
+            hp: 10,
+            pp: 5,
+            atk: 3,
+            def: 2,
+            mag: 4,
+            spd: 2,
+        };
+        let gains = calculate_stat_gains(&growth, 1, 5);
+        assert_eq!(gains.hp, 40);
+        assert_eq!(gains.pp, 20);
+        assert_eq!(gains.atk, 12);
+    }
 }
