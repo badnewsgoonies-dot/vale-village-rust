@@ -3,6 +3,7 @@
 //! Uses the `GameState` from `core_plugin`. The initial state is `Loading` which
 //! transitions to `MainMenu` automatically (handled in core_plugin). This plugin
 //! builds the MainMenu UI, Pause overlay, and Settings screen.
+#![allow(dead_code)]
 
 use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowMode, WindowResolution};
@@ -370,7 +371,12 @@ impl Plugin for UiPlugin {
             // Settings
             .add_systems(OnEnter(GameState::Settings), setup_settings)
             .add_systems(Update, settings_input.run_if(in_state(GameState::Settings)))
-            .add_systems(OnExit(GameState::Settings), cleanup::<SettingsRoot>);
+            .add_systems(OnExit(GameState::Settings), cleanup::<SettingsRoot>)
+            // Tutorial / Onboarding
+            .add_systems(OnEnter(GameState::Overworld), trigger_tutorial_on_overworld)
+            .add_systems(OnEnter(GameState::Battle), trigger_tutorial_on_battle)
+            .add_systems(OnEnter(GameState::Shop), trigger_tutorial_on_shop)
+            .add_systems(Update, (show_tutorial_tip, dismiss_tutorial_tip).chain());
     }
 }
 
@@ -1634,11 +1640,13 @@ fn settings_input(
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// TUTORIAL / ONBOARDING SYSTEMS
+// TUTORIAL / ONBOARDING SYSTEMS (reserved — wiring in a future wave)
 // ══════════════════════════════════════════════════════════════════════
 
+#[allow(dead_code)]
 /// Colour for the semi-transparent tutorial overlay background.
 const TUTORIAL_BG: Color = Color::srgba(0.02, 0.02, 0.10, 0.85);
+#[allow(dead_code)]
 /// Colour for tutorial tip text.
 const TUTORIAL_TEXT: Color = Color::srgb(0.95, 0.90, 0.70);
 
