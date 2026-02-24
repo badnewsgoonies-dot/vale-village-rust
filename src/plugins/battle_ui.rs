@@ -7,6 +7,7 @@
 use bevy::prelude::*;
 
 use super::core_plugin::GameState;
+use super::save::SaveSystem;
 use crate::battle::types::{
     BattleAction, BattlePhase, BattleRewards, BattleStateRes, BattleUnit, CommandMenu,
     CommandSelectState, DamageEvent, EndBattleEvent, LevelUpEvent, UnitSide,
@@ -1108,18 +1109,22 @@ fn battle_victory_ui_system(
 
 // ── Defeat UI ────────────────────────────────────────────────────────
 
-fn battle_defeat_ui_system(
-    mut commands: Commands,
-    keys: Res<ButtonInput<KeyCode>>,
-    mut cache: ResMut<BattleResultCache>,
-    mut next_game_state: ResMut<NextState<GameState>>,
-    existing: Query<Entity, With<DefeatScreenRoot>>,
-) {
-    // Spawn UI once
-    if !cache.displayed {
-        cache.displayed = true;
+#[derive(Component)]
+struct DefeatFeedbackText;
 
-        commands
+fn battle_defeat_ui_system(world: &mut World) {
+    // Check if the screen has already been spawned
+    let displayed = world
+        .get_resource::<BattleResultCache>()
+        .is_none_or(|c| c.displayed);
+
+    // Spawn UI once
+    if !displayed {
+        if let Some(mut cache) = world.get_resource_mut::<BattleResultCache>() {
+            cache.displayed = true;
+        }
+
+        world
             .spawn((
                 DefeatScreenRoot,
                 BattleRoot,
@@ -1136,9 +1141,9 @@ fn battle_defeat_ui_system(
                 GlobalZIndex(20),
             ))
             .with_children(|root| {
-                // "DEFEAT" header
+                // "GAME OVER" header
                 root.spawn((
-                    Text::new("DEFEAT"),
+                    Text::new("GAME OVER"),
                     TextFont {
                         font_size: 48.0,
                         ..default()
@@ -1146,6 +1151,7 @@ fn battle_defeat_ui_system(
                     TextColor(DEFEAT_RED),
                 ));
 
+                // Subtitle
                 root.spawn((
                     Text::new("Your party has been defeated..."),
                     TextFont {
@@ -1157,24 +1163,103 @@ fn battle_defeat_ui_system(
 
                 // Spacer
                 root.spawn(Node {
-                    height: Val::Px(20.0),
+                    height: Val::Px(30.0),
                     ..default()
                 });
 
+                // Option 1: Return to Title
                 root.spawn((
-                    Text::new("Press Enter to return to title"),
+                    Text::new("[Enter]  Return to Title"),
                     TextFont {
-                        font_size: 16.0,
+                        font_size: 18.0,
                         ..default()
                     },
-                    TextColor(DIM_TEXT),
+                    TextColor(GOLD_TEXT),
+                ));
+
+                // Option 2: Load Last Save
+                root.spawn((
+                    Text::new("[L]  Load Last Save"),
+                    TextFont {
+                        font_size: 18.0,
+                        ..default()
+                    },
+                    TextColor(GOLD_TEXT),
+                ));
+
+                // Spacer
+                root.spawn(Node {
+                    height: Val::Px(12.0),
+                    ..default()
+                });
+
+                // Feedback text (for load errors)
+                root.spawn((
+                    DefeatFeedbackText,
+                    Text::new(""),
+                    TextFont {
+                        font_size: 14.0,
+                        ..default()
+                    },
+                    TextColor(DEFEAT_RED),
                 ));
             });
     }
 
-    // Wait for Enter to return to main menu
-    if keys.just_pressed(KeyCode::Enter) && !existing.is_empty() {
-        next_game_state.set(GameState::MainMenu);
+    // Check if screen exists before handling input
+    let screen_exists = world
+        .query_filtered::<Entity, With<DefeatScreenRoot>>()
+        .iter(world)
+        .next()
+        .is_some();
+
+    if !screen_exists {
+        return;
+    }
+
+    // Read key presses
+    let (enter_pressed, l_pressed) = {
+        let keys = world.resource::<ButtonInput<KeyCode>>();
+        (
+            keys.just_pressed(KeyCode::Enter),
+            keys.just_pressed(KeyCode::KeyL),
+        )
+    };
+
+    // Enter: Return to Title
+    if enter_pressed {
+        let mut next_phase = world.resource_mut::<NextState<BattlePhase>>();
+        next_phase.set(BattlePhase::Inactive);
+        let mut next_state = world.resource_mut::<NextState<GameState>>();
+        next_state.set(GameState::MainMenu);
+        return;
+    }
+
+    // L: Load Last Save (slot 1)
+    if l_pressed {
+        let load_result = {
+            let save_system = world.resource::<SaveSystem>();
+            save_system.load(1)
+        };
+
+        match load_result {
+            Ok(save_data) => {
+                save_data.apply_to_game(world);
+                let mut next_phase = world.resource_mut::<NextState<BattlePhase>>();
+                next_phase.set(BattlePhase::Inactive);
+                let mut next_state = world.resource_mut::<NextState<GameState>>();
+                next_state.set(GameState::Overworld);
+            }
+            Err(error) => {
+                warn!("Failed to load save slot 1: {}", error);
+                // Show feedback on the defeat screen
+                let mut feedback_query =
+                    world.query_filtered::<&mut Text, With<DefeatFeedbackText>>();
+                for mut text in feedback_query.iter_mut(world) {
+                    **text = format!("Load failed: {}", error);
+                }
+            }
+        }
     }
 }
 

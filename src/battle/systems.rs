@@ -1072,9 +1072,23 @@ fn execute_ability(
                             .iter()
                             .any(|(id, a)| *id == eid && matches!(a, BattleAction::Defend));
                         if let Some(mut target) = units.iter_mut().find(|u| u.id == eid) {
-                            let dmg = damage::calculate_damage(
+                            // Accuracy check per target
+                            if !damage::check_accuracy(&caster, &target, &mut rng.0) {
+                                damage_events.send(DamageEvent {
+                                    attacker_id: caster_id,
+                                    target_id: eid,
+                                    damage: 0,
+                                    element: ability.element,
+                                    was_blocked: false,
+                                });
+                                continue;
+                            }
+                            let mut dmg = damage::calculate_damage(
                                 &caster, &target, &ability, defending, &mut rng.0,
                             );
+                            if damage::calculate_crit(&caster, &mut rng.0) {
+                                dmg = (dmg as f32 * 1.5) as i32;
+                            }
                             let result = damage::apply_damage_with_shields(&mut target, dmg);
                             damage_events.send(DamageEvent {
                                 attacker_id: caster_id,
@@ -1372,5 +1386,176 @@ fn persist_party_state(party: &mut Party, battle_units: &[BattleUnit], game_data
                 .insert(unit_id.clone(), (unit.level, unit.xp));
             party.unit_hp_pp.insert(unit_id.clone(), (unit.hp, unit.pp));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::abilities::{BuffEffect, StatusEffectDef};
+
+    /// Helper to build a GameData for tests using the real registry builders.
+    fn test_game_data() -> GameData {
+        GameData {
+            abilities: crate::data::abilities::build_ability_registry(),
+            units: crate::data::units::build_unit_registry(),
+            enemies: crate::data::enemies::build_enemy_registry(),
+            items: crate::data::items::build_item_registry(),
+            equipment: crate::data::items::build_equipment_registry(),
+            djinn: crate::data::djinn::build_djinn_registry(),
+        }
+    }
+
+    /// Helper to build a BattleUnit with sensible defaults for testing.
+    fn make_battle_unit(id: u32, name: &str, level: u8, hp: i32, pp: i32, xp: u32) -> BattleUnit {
+        BattleUnit {
+            id,
+            name: name.to_string(),
+            side: UnitSide::Player,
+            element: Element::Venus,
+            level,
+            hp,
+            max_hp: hp,
+            pp,
+            max_pp: pp,
+            atk: 20,
+            def: 15,
+            mag: 10,
+            spd: 12,
+            luck: 5,
+            status_effects: Vec::new(),
+            ability_ids: Vec::new(),
+            djinn_ids: Vec::new(),
+            damage_taken: 0,
+            damage_dealt: 0,
+            xp,
+            growth_rates: GrowthRates {
+                hp: 25,
+                pp: 4,
+                atk: 3,
+                def: 4,
+                mag: 2,
+                spd: 1,
+            },
+        }
+    }
+
+    #[test]
+    fn test_convert_status_effect_poison() {
+        let se_def = StatusEffectDef {
+            effect_type: "poison".to_string(),
+            duration: 3,
+            chance: 1.0,
+        };
+        let result = convert_status_effect(&se_def);
+        assert!(
+            result.is_some(),
+            "poison should convert to a BattleStatusEffect"
+        );
+        let effect = result.unwrap();
+        assert_eq!(effect, BattleStatusEffect::Poison { duration: 3 });
+        assert_eq!(effect.kind(), StatusKind::Poison);
+    }
+
+    #[test]
+    fn test_convert_status_effect_unknown() {
+        let se_def = StatusEffectDef {
+            effect_type: "petrify".to_string(),
+            duration: 5,
+            chance: 0.5,
+        };
+        let result = convert_status_effect(&se_def);
+        assert!(result.is_none(), "unknown effect_type should return None");
+    }
+
+    #[test]
+    fn test_buff_to_status_effects_mixed() {
+        let buff = BuffEffect {
+            atk: 10,
+            def: -5,
+            mag: 0,
+            spd: 0,
+        };
+        let effects = buff_to_status_effects(&buff, 4);
+
+        assert_eq!(effects.len(), 2, "should produce exactly 2 status effects");
+
+        // First effect: positive atk -> Buff
+        assert_eq!(
+            effects[0],
+            BattleStatusEffect::Buff {
+                stat: StatKind::Atk,
+                modifier: 10,
+                duration: 4,
+            }
+        );
+
+        // Second effect: negative def -> Debuff
+        assert_eq!(
+            effects[1],
+            BattleStatusEffect::Debuff {
+                stat: StatKind::Def,
+                modifier: -5,
+                duration: 4,
+            }
+        );
+    }
+
+    #[test]
+    fn test_buff_to_status_effects_empty() {
+        let buff = BuffEffect {
+            atk: 0,
+            def: 0,
+            mag: 0,
+            spd: 0,
+        };
+        let effects = buff_to_status_effects(&buff, 3);
+        assert!(
+            effects.is_empty(),
+            "all-zero BuffEffect should produce no status effects"
+        );
+    }
+
+    #[test]
+    fn test_equipment_stat_bonuses_no_equipment() {
+        let party = Party::default();
+        let game_data = test_game_data();
+
+        let (hp, pp, atk, def, mag, spd) = equipment_stat_bonuses("adept", &party, &game_data);
+
+        assert_eq!(hp, 0);
+        assert_eq!(pp, 0);
+        assert_eq!(atk, 0);
+        assert_eq!(def, 0);
+        assert_eq!(mag, 0);
+        assert_eq!(spd, 0);
+    }
+
+    #[test]
+    fn test_persist_party_state_writes_levels() {
+        let game_data = test_game_data();
+        let mut party = Party::default();
+
+        // Create BattleUnits whose names match units in the registry.
+        // "adept" maps to the "Adept" unit definition.
+        let units = vec![make_battle_unit(1, "Adept", 5, 80, 20, 1200)];
+
+        persist_party_state(&mut party, &units, &game_data);
+
+        // Verify level/XP was written
+        let (level, xp) = party
+            .unit_levels
+            .get("adept")
+            .expect("adept should have persisted level/XP");
+        assert_eq!(*level, 5);
+        assert_eq!(*xp, 1200);
+
+        // Verify HP/PP was written
+        let (hp, pp) = party
+            .unit_hp_pp
+            .get("adept")
+            .expect("adept should have persisted HP/PP");
+        assert_eq!(*hp, 80);
+        assert_eq!(*pp, 20);
     }
 }

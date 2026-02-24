@@ -7,7 +7,7 @@
 use bevy::prelude::*;
 
 use super::audio::AudioSettings;
-use super::core_plugin::GameState;
+use super::core_plugin::{GameState, Party};
 use super::save::{SaveData, SaveSystem};
 
 // ── Color palette (Golden Sun aesthetic) ──────────────────────────────
@@ -41,6 +41,9 @@ struct PauseMenuItem {
 
 #[derive(Component)]
 struct PauseMenuFeedbackText;
+
+#[derive(Component)]
+struct MainMenuFeedbackText;
 
 #[derive(Component)]
 struct SettingsRoot;
@@ -84,6 +87,21 @@ struct PauseMenuFeedback {
 }
 
 impl Default for PauseMenuFeedback {
+    fn default() -> Self {
+        Self {
+            message: None,
+            timer: Timer::from_seconds(1.5, TimerMode::Once),
+        }
+    }
+}
+
+#[derive(Resource, Debug)]
+struct MainMenuFeedback {
+    message: Option<String>,
+    timer: Timer,
+}
+
+impl Default for MainMenuFeedback {
     fn default() -> Self {
         Self {
             message: None,
@@ -137,11 +155,16 @@ impl Plugin for UiPlugin {
             .add_systems(Update, screen_transition_system)
             // Main Menu
             .add_systems(OnEnter(GameState::MainMenu), setup_main_menu)
+            .add_systems(Update, main_menu_input)
             .add_systems(
                 Update,
-                (main_menu_input, title_pulse_animation).run_if(in_state(GameState::MainMenu)),
+                (title_pulse_animation, main_menu_feedback_update)
+                    .run_if(in_state(GameState::MainMenu)),
             )
-            .add_systems(OnExit(GameState::MainMenu), cleanup::<MainMenuRoot>)
+            .add_systems(
+                OnExit(GameState::MainMenu),
+                (cleanup::<MainMenuRoot>, clear_main_menu_feedback),
+            )
             // Pause Menu
             .add_systems(OnEnter(GameState::Paused), setup_pause_menu)
             .add_systems(Update, pause_menu_input.run_if(in_state(GameState::Paused)))
@@ -224,6 +247,7 @@ const MAIN_MENU_ITEMS: &[&str] = &["New Game", "Continue", "Settings", "Quit"];
 
 fn setup_main_menu(mut commands: Commands) {
     commands.insert_resource(MenuCursor::new(MAIN_MENU_ITEMS.len()));
+    commands.insert_resource(MainMenuFeedback::default());
 
     commands
         .spawn((
@@ -322,6 +346,22 @@ fn setup_main_menu(mut commands: Commands) {
                     ..default()
                 },
             ));
+
+            // Feedback text (e.g. "No save found")
+            parent.spawn((
+                MainMenuFeedbackText,
+                Text::new(""),
+                TextFont {
+                    font_size: 18.0,
+                    ..default()
+                },
+                TextColor(BRIGHT_GOLD),
+                Node {
+                    min_height: Val::Px(22.0),
+                    margin: UiRect::top(Val::Px(14.0)),
+                    ..default()
+                },
+            ));
         });
 }
 
@@ -332,67 +372,163 @@ fn title_pulse_animation(time: Res<Time>, mut query: Query<&mut TextColor, With<
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn main_menu_input(
-    keys: Res<ButtonInput<KeyCode>>,
-    time: Res<Time>,
-    mut cursor: ResMut<MenuCursor>,
-    mut transition: ResMut<ScreenTransition>,
-    mut app_exit: EventWriter<AppExit>,
-    items: Query<(&MainMenuItem, &Children, Entity)>,
-    mut bg_query: Query<(&mut BackgroundColor, &mut BorderColor)>,
-    mut text_query: Query<&mut TextColor>,
-) {
-    if transition.active {
+fn main_menu_input(world: &mut World) {
+    // Only run while in MainMenu state
+    {
+        let state = world.resource::<State<GameState>>();
+        if *state.get() != GameState::MainMenu {
+            return;
+        }
+    }
+
+    if world.resource::<ScreenTransition>().active {
         return;
     }
 
-    cursor.cooldown.tick(time.delta());
+    let delta = world.resource::<Time>().delta();
+    let (up_pressed, down_pressed, confirm_pressed) = {
+        let keys = world.resource::<ButtonInput<KeyCode>>();
+        (
+            keys.just_pressed(KeyCode::ArrowUp) || keys.just_pressed(KeyCode::KeyW),
+            keys.just_pressed(KeyCode::ArrowDown) || keys.just_pressed(KeyCode::KeyS),
+            keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space),
+        )
+    };
 
-    if cursor.cooldown.finished() {
-        if keys.just_pressed(KeyCode::ArrowUp) || keys.just_pressed(KeyCode::KeyW) {
-            cursor.selected = if cursor.selected == 0 {
-                cursor.count - 1
-            } else {
-                cursor.selected - 1
-            };
-            cursor.cooldown.reset();
-        }
-        if keys.just_pressed(KeyCode::ArrowDown) || keys.just_pressed(KeyCode::KeyS) {
-            cursor.selected = (cursor.selected + 1) % cursor.count;
-            cursor.cooldown.reset();
+    {
+        let mut cursor = world.resource_mut::<MenuCursor>();
+        cursor.cooldown.tick(delta);
+
+        if cursor.cooldown.finished() {
+            if up_pressed {
+                cursor.selected = if cursor.selected == 0 {
+                    cursor.count - 1
+                } else {
+                    cursor.selected - 1
+                };
+                cursor.cooldown.reset();
+            }
+            if down_pressed {
+                cursor.selected = (cursor.selected + 1) % cursor.count;
+                cursor.cooldown.reset();
+            }
         }
     }
+
+    let selected = world.resource::<MenuCursor>().selected;
 
     // Update visuals
-    for (item, children, entity) in &items {
-        let is_sel = item.index == cursor.selected;
+    {
+        let mut items = world.query::<(&MainMenuItem, &Children, Entity)>();
+        let item_data: Vec<(usize, Vec<Entity>, Entity)> = items
+            .iter(world)
+            .map(|(item, children, entity)| {
+                (item.index, children.iter().copied().collect(), entity)
+            })
+            .collect();
 
-        // Update item background/border
-        if let Ok((mut bg, mut border)) = bg_query.get_mut(entity) {
-            *bg = BackgroundColor(if is_sel { SELECTED_BG } else { Color::NONE });
-            *border = BorderColor(if is_sel { GOLD } else { Color::NONE });
-        }
+        for (index, children, entity) in &item_data {
+            let is_sel = *index == selected;
 
-        // Update child text color
-        for &child in children.iter() {
-            if let Ok(mut tc) = text_query.get_mut(child) {
-                tc.0 = if is_sel { BRIGHT_GOLD } else { DIM_TEXT };
+            // Update item background/border
+            if let Some(mut bg) = world.entity_mut(*entity).get_mut::<BackgroundColor>() {
+                *bg = BackgroundColor(if is_sel { SELECTED_BG } else { Color::NONE });
+            }
+            if let Some(mut border) = world.entity_mut(*entity).get_mut::<BorderColor>() {
+                *border = BorderColor(if is_sel { GOLD } else { Color::NONE });
+            }
+
+            // Update child text color
+            for child in children {
+                if let Some(mut tc) = world.entity_mut(*child).get_mut::<TextColor>() {
+                    tc.0 = if is_sel { BRIGHT_GOLD } else { DIM_TEXT };
+                }
             }
         }
     }
 
-    if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) {
-        match cursor.selected {
-            0 => start_transition(&mut transition, GameState::Overworld), // New Game
-            1 => start_transition(&mut transition, GameState::Overworld), // Continue (stub)
-            2 => start_transition(&mut transition, GameState::Settings),
-            3 => {
-                app_exit.send(AppExit::Success);
+    if !confirm_pressed {
+        return;
+    }
+
+    match selected {
+        0 => {
+            // New Game: reset party to default for a fresh start
+            world.insert_resource(Party::default());
+            let mut transition = world.resource_mut::<ScreenTransition>();
+            start_transition(&mut transition, GameState::Overworld);
+        }
+        1 => {
+            // Continue: attempt to load save slot 1
+            let result = {
+                let save_system = world.resource::<SaveSystem>();
+                save_system.load(1)
+            };
+
+            match result {
+                Ok(save_data) => {
+                    save_data.apply_to_game(world);
+                    let mut transition = world.resource_mut::<ScreenTransition>();
+                    start_transition(&mut transition, GameState::Overworld);
+                }
+                Err(_error) => {
+                    warn!("No save found for slot 1: {}", _error);
+                    set_main_menu_feedback(world, "No save found");
+                }
             }
-            _ => {}
+        }
+        2 => {
+            let mut transition = world.resource_mut::<ScreenTransition>();
+            start_transition(&mut transition, GameState::Settings);
+        }
+        3 => {
+            world.send_event(AppExit::Success);
+        }
+        _ => {}
+    }
+}
+
+fn set_main_menu_feedback(world: &mut World, message: impl Into<String>) {
+    let message = message.into();
+    if let Some(mut feedback) = world.get_resource_mut::<MainMenuFeedback>() {
+        feedback.message = Some(message);
+        feedback.timer = Timer::from_seconds(1.5, TimerMode::Once);
+    } else {
+        world.insert_resource(MainMenuFeedback {
+            message: Some(message),
+            timer: Timer::from_seconds(1.5, TimerMode::Once),
+        });
+    }
+}
+
+fn main_menu_feedback_update(
+    time: Res<Time>,
+    feedback: Option<ResMut<MainMenuFeedback>>,
+    mut text_query: Query<&mut Text, With<MainMenuFeedbackText>>,
+) {
+    let Ok(mut feedback_text) = text_query.get_single_mut() else {
+        return;
+    };
+
+    let mut text_value = String::new();
+    if let Some(mut feedback) = feedback {
+        if feedback.message.is_some() {
+            feedback.timer.tick(time.delta());
+            if feedback.timer.finished() {
+                feedback.message = None;
+            }
+        }
+
+        if let Some(message) = feedback.message.as_ref() {
+            text_value = message.clone();
         }
     }
+
+    **feedback_text = text_value;
+}
+
+fn clear_main_menu_feedback(mut commands: Commands) {
+    commands.remove_resource::<MainMenuFeedback>();
 }
 
 // ══════════════════════════════════════════════════════════════════════

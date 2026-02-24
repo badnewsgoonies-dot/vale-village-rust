@@ -27,6 +27,10 @@ pub struct EnemyDefinition {
     pub abilities: Vec<EnemyAbility>,
     pub base_xp: u32,
     pub base_gold: u32,
+    /// Encounter tier: 1 = early game, 2 = mid game, 3 = late game, 4 = boss.
+    pub tier: u8,
+    /// Item drops: Vec of (item_id, drop_chance) where drop_chance is 0.0–1.0.
+    pub drop_table: Vec<(String, f32)>,
 }
 
 /// Helper to create an enemy ability entry.
@@ -34,6 +38,11 @@ fn ea(id: &str) -> EnemyAbility {
     EnemyAbility {
         ability_id: id.into(),
     }
+}
+
+/// Helper to create a drop table entry (item_id, drop_chance).
+fn drop(id: &str, chance: f32) -> (String, f32) {
+    (id.into(), chance)
 }
 
 /// Build the registry of all enemy definitions (50 types).
@@ -56,6 +65,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("ice-shard")],
             base_xp: 12,
             base_gold: 6,
+            tier: 1,
+            drop_table: vec![drop("herb", 0.25)],
         },
         EnemyDefinition {
             id: "venus-wolf".into(),
@@ -71,6 +82,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("heavy-strike")],
             base_xp: 16,
             base_gold: 8,
+            tier: 1,
+            drop_table: vec![drop("herb", 0.20)],
         },
         EnemyDefinition {
             id: "mars-bandit".into(),
@@ -86,6 +99,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("heavy-strike"), ea("fireball")],
             base_xp: 20,
             base_gold: 12,
+            tier: 1,
+            drop_table: vec![drop("herb", 0.20), drop("antidote", 0.10)],
         },
         EnemyDefinition {
             id: "jupiter-sprite".into(),
@@ -101,6 +116,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("gust"), ea("blind"), ea("paralyze-shock")],
             base_xp: 18,
             base_gold: 10,
+            tier: 1,
+            drop_table: vec![drop("jupiter-zephyr-scroll", 0.08)],
         },
         EnemyDefinition {
             id: "venus-beetle".into(),
@@ -116,6 +133,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("guard-break")],
             base_xp: 22,
             base_gold: 12,
+            tier: 1,
+            drop_table: Vec::new(),
         },
         // ===== ENSLAVED BEASTS - Wolf Pack (3) =====
         EnemyDefinition {
@@ -132,6 +151,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("heavy-strike"), ea("burn-touch")],
             base_xp: 18,
             base_gold: 9,
+            tier: 1,
+            drop_table: Vec::new(),
         },
         EnemyDefinition {
             id: "mercury-wolf".into(),
@@ -147,6 +168,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("heavy-strike"), ea("freeze-blast")],
             base_xp: 18,
             base_gold: 9,
+            tier: 1,
+            drop_table: vec![drop("mercury-vial", 0.08)],
         },
         EnemyDefinition {
             id: "jupiter-wolf".into(),
@@ -162,6 +185,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("precise-jab"), ea("gust")],
             base_xp: 18,
             base_gold: 9,
+            tier: 1,
+            drop_table: Vec::new(),
         },
         // ===== ENSLAVED BEASTS - Bears (4) =====
         EnemyDefinition {
@@ -178,6 +203,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("heavy-strike"), ea("quake")],
             base_xp: 35,
             base_gold: 18,
+            tier: 1,
+            drop_table: vec![drop("herb", 0.15), drop("power_bread", 0.03)],
         },
         EnemyDefinition {
             id: "mars-bear".into(),
@@ -193,6 +220,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("heavy-strike"), ea("fireball")],
             base_xp: 35,
             base_gold: 18,
+            tier: 1,
+            drop_table: Vec::new(),
         },
         EnemyDefinition {
             id: "mercury-bear".into(),
@@ -208,6 +237,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("heavy-strike"), ea("ice-shard")],
             base_xp: 35,
             base_gold: 18,
+            tier: 1,
+            drop_table: Vec::new(),
         },
         EnemyDefinition {
             id: "jupiter-bear".into(),
@@ -223,6 +254,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("heavy-strike"), ea("gust")],
             base_xp: 35,
             base_gold: 18,
+            tier: 1,
+            drop_table: Vec::new(),
         },
         // ===== COUNTER-STRATEGY ENEMIES - Support Roles (7) =====
         EnemyDefinition {
@@ -239,6 +272,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("ice-shard"), ea("heal")],
             base_xp: 22,
             base_gold: 12,
+            tier: 1,
+            drop_table: vec![drop("mercury-mist-elixir", 0.10)],
         },
         EnemyDefinition {
             id: "gale-priest".into(),
@@ -254,6 +289,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("gust"), ea("heal"), ea("blind")],
             base_xp: 24,
             base_gold: 14,
+            tier: 1,
+            drop_table: vec![drop("antidote", 0.15)],
         },
         EnemyDefinition {
             id: "stone-guardian".into(),
@@ -269,6 +306,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("guard-break"), ea("boost-def")],
             base_xp: 30,
             base_gold: 16,
+            tier: 1,
+            drop_table: Vec::new(),
         },
         EnemyDefinition {
             id: "ember-cleric".into(),
@@ -284,6 +323,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("fireball"), ea("heal")],
             base_xp: 26,
             base_gold: 14,
+            tier: 1,
+            drop_table: Vec::new(),
         },
         EnemyDefinition {
             id: "earth-shaman".into(),
@@ -299,6 +340,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("quake"), ea("boost-def"), ea("heal")],
             base_xp: 45,
             base_gold: 22,
+            tier: 1,
+            drop_table: vec![drop("potion", 0.12)],
         },
         EnemyDefinition {
             id: "tide-enchanter".into(),
@@ -314,6 +357,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("ice-shard"), ea("boost-def"), ea("heal")],
             base_xp: 50,
             base_gold: 24,
+            tier: 1,
+            drop_table: Vec::new(),
         },
         EnemyDefinition {
             id: "frost-oracle".into(),
@@ -329,6 +374,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("freeze-blast"), ea("heal"), ea("party-heal")],
             base_xp: 55,
             base_gold: 26,
+            tier: 1,
+            drop_table: vec![drop("mercury-mist-elixir", 0.12), drop("lucky_medal", 0.02)],
         },
         // ===== SLAVERS - Tier 1 Scouts (4) =====
         EnemyDefinition {
@@ -345,6 +392,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("guard-break")],
             base_xp: 15,
             base_gold: 10,
+            tier: 1,
+            drop_table: vec![drop("herb", 0.20)],
         },
         EnemyDefinition {
             id: "flame-scout".into(),
@@ -360,6 +409,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("fireball")],
             base_xp: 15,
             base_gold: 10,
+            tier: 1,
+            drop_table: Vec::new(),
         },
         EnemyDefinition {
             id: "frost-scout".into(),
@@ -375,6 +426,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("ice-shard")],
             base_xp: 15,
             base_gold: 10,
+            tier: 1,
+            drop_table: Vec::new(),
         },
         EnemyDefinition {
             id: "gale-scout".into(),
@@ -390,6 +443,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("gust")],
             base_xp: 15,
             base_gold: 10,
+            tier: 1,
+            drop_table: Vec::new(),
         },
         // ===== SLAVERS - Tier 2 Soldiers (4) =====
         EnemyDefinition {
@@ -406,6 +461,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("heavy-strike"), ea("quake")],
             base_xp: 28,
             base_gold: 16,
+            tier: 1,
+            drop_table: Vec::new(),
         },
         EnemyDefinition {
             id: "blaze-soldier".into(),
@@ -421,6 +478,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("fireball"), ea("burn-touch")],
             base_xp: 28,
             base_gold: 16,
+            tier: 1,
+            drop_table: Vec::new(),
         },
         EnemyDefinition {
             id: "tide-soldier".into(),
@@ -436,6 +495,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("ice-shard"), ea("freeze-blast")],
             base_xp: 28,
             base_gold: 16,
+            tier: 1,
+            drop_table: Vec::new(),
         },
         EnemyDefinition {
             id: "wind-soldier".into(),
@@ -451,6 +512,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("gust"), ea("blind")],
             base_xp: 28,
             base_gold: 16,
+            tier: 1,
+            drop_table: Vec::new(),
         },
         // ===== SLAVERS - Tier 3 Captains (4) =====
         EnemyDefinition {
@@ -472,6 +535,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             ],
             base_xp: 50,
             base_gold: 28,
+            tier: 1,
+            drop_table: vec![drop("potion", 0.15), drop("power_bread", 0.05)],
         },
         EnemyDefinition {
             id: "inferno-captain".into(),
@@ -492,6 +557,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             ],
             base_xp: 50,
             base_gold: 28,
+            tier: 1,
+            drop_table: Vec::new(),
         },
         EnemyDefinition {
             id: "glacier-captain".into(),
@@ -512,6 +579,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             ],
             base_xp: 50,
             base_gold: 28,
+            tier: 1,
+            drop_table: Vec::new(),
         },
         EnemyDefinition {
             id: "thunder-captain".into(),
@@ -527,6 +596,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("strike"), ea("gust"), ea("paralyze-shock"), ea("blind")],
             base_xp: 50,
             base_gold: 28,
+            tier: 1,
+            drop_table: vec![drop("jupiter-lightning-flask", 0.08)],
         },
         // ===== SLAVERS - Tier 4 Commanders (4) =====
         EnemyDefinition {
@@ -549,6 +620,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             ],
             base_xp: 75,
             base_gold: 40,
+            tier: 2,
+            drop_table: vec![drop("potion", 0.20), drop("power_bread", 0.05)],
         },
         EnemyDefinition {
             id: "fire-commander".into(),
@@ -570,6 +643,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             ],
             base_xp: 75,
             base_gold: 40,
+            tier: 2,
+            drop_table: Vec::new(),
         },
         EnemyDefinition {
             id: "storm-commander".into(),
@@ -591,6 +666,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             ],
             base_xp: 75,
             base_gold: 40,
+            tier: 2,
+            drop_table: vec![drop("mercury-water-of-life", 0.08)],
         },
         EnemyDefinition {
             id: "gale-commander".into(),
@@ -612,6 +689,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             ],
             base_xp: 75,
             base_gold: 40,
+            tier: 2,
+            drop_table: vec![drop("jupiter-hermes-water", 0.10)],
         },
         // ===== SUPPORT ENEMIES - Heralds/Wardens (2) =====
         EnemyDefinition {
@@ -628,6 +707,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("quake"), ea("boost-atk"), ea("boost-def"), ea("heal")],
             base_xp: 58,
             base_gold: 28,
+            tier: 2,
+            drop_table: vec![drop("potion", 0.15)],
         },
         EnemyDefinition {
             id: "flame-herald".into(),
@@ -643,6 +724,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![ea("fireball"), ea("boost-atk"), ea("weaken-def")],
             base_xp: 70,
             base_gold: 35,
+            tier: 2,
+            drop_table: Vec::new(),
         },
         // ===== BOSSES (9) =====
         EnemyDefinition {
@@ -664,6 +747,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             ],
             base_xp: 60,
             base_gold: 40,
+            tier: 4,
+            drop_table: vec![drop("potion", 0.50), drop("power_bread", 0.15)],
         },
         EnemyDefinition {
             id: "iron-warden".into(),
@@ -684,6 +769,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             ],
             base_xp: 80,
             base_gold: 50,
+            tier: 4,
+            drop_table: vec![drop("potion", 0.40), drop("lucky_medal", 0.08)],
         },
         EnemyDefinition {
             id: "phoenix-lord".into(),
@@ -705,6 +792,11 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             ],
             base_xp: 120,
             base_gold: 80,
+            tier: 4,
+            drop_table: vec![
+                drop("mercury-water-of-life", 0.30),
+                drop("power_bread", 0.10),
+            ],
         },
         EnemyDefinition {
             id: "glacier-queen".into(),
@@ -725,6 +817,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             ],
             base_xp: 140,
             base_gold: 90,
+            tier: 4,
+            drop_table: vec![drop("elixir", 0.15), drop("lucky_medal", 0.10)],
         },
         EnemyDefinition {
             id: "storm-tyrant".into(),
@@ -746,6 +840,11 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             ],
             base_xp: 160,
             base_gold: 100,
+            tier: 4,
+            drop_table: vec![
+                drop("jupiter-hermes-water", 0.25),
+                drop("lucky_medal", 0.10),
+            ],
         },
         EnemyDefinition {
             id: "earth-titan".into(),
@@ -767,6 +866,8 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             ],
             base_xp: 200,
             base_gold: 120,
+            tier: 4,
+            drop_table: vec![drop("revive-stone", 0.20), drop("power_bread", 0.15)],
         },
         EnemyDefinition {
             id: "infernal-dragon".into(),
@@ -788,6 +889,12 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             ],
             base_xp: 250,
             base_gold: 150,
+            tier: 4,
+            drop_table: vec![
+                drop("elixir", 0.20),
+                drop("revive-stone", 0.15),
+                drop("lucky_medal", 0.10),
+            ],
         },
         EnemyDefinition {
             id: "leviathan".into(),
@@ -809,6 +916,12 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             ],
             base_xp: 300,
             base_gold: 180,
+            tier: 4,
+            drop_table: vec![
+                drop("elixir", 0.25),
+                drop("revive-stone", 0.20),
+                drop("lucky_medal", 0.12),
+            ],
         },
         EnemyDefinition {
             id: "vale-overlord".into(),
@@ -830,6 +943,12 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             ],
             base_xp: 500,
             base_gold: 300,
+            tier: 4,
+            drop_table: vec![
+                drop("elixir", 0.40),
+                drop("revive-stone", 0.30),
+                drop("lucky_medal", 0.20),
+            ],
         },
     ];
 
@@ -838,4 +957,13 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
     }
 
     m
+}
+
+/// Returns all enemy definitions matching the given tier.
+///
+/// Tier values: 1 = early game, 2 = mid game, 3 = late game, 4 = boss.
+#[allow(dead_code)]
+pub fn get_enemies_by_tier(tier: u8) -> Vec<EnemyDefinition> {
+    let registry = build_enemy_registry();
+    registry.into_values().filter(|e| e.tier == tier).collect()
 }

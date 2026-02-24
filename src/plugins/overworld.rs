@@ -7,7 +7,7 @@
 use bevy::prelude::*;
 use rand::Rng;
 
-use super::core_plugin::GameState;
+use super::core_plugin::{GameState, Party};
 use super::shop::CurrentShop;
 use super::tower::{TowerState, build_floor_definitions, generate_floor_encounter};
 use super::ui::{ScreenTransition, start_transition};
@@ -34,6 +34,7 @@ const PLAYER_COLOR: Color = Color::srgb(0.85, 0.65, 0.13);
 const NPC_COLOR: Color = Color::srgb(0.3, 0.5, 0.8);
 const NPC_ALT_COLOR: Color = Color::srgb(0.7, 0.4, 0.25);
 const TOWER: Color = Color::srgb(0.4, 0.3, 0.5);
+const RECRUIT_NPC_COLOR: Color = Color::srgb(0.2, 0.7, 0.3);
 
 // UI colors
 const GOLD: Color = Color::srgb(0.85, 0.65, 0.13);
@@ -63,6 +64,12 @@ struct DialogHintText;
 
 #[derive(Component)]
 struct TowerDoor;
+
+/// Marks an NPC as a recruitable party member.
+#[derive(Component, Debug)]
+struct RecruitNpc {
+    unit_id: String,
+}
 
 // ── Resources ─────────────────────────────────────────────────────────
 
@@ -398,6 +405,53 @@ fn setup_overworld(
         None,
     );
 
+    // Recruitment NPCs
+    spawn_npc_full(
+        &mut commands,
+        "Karis",
+        GridPosition::new(12, 8),
+        RECRUIT_NPC_COLOR,
+        vec![
+            "I am Karis, a Wind Seer.".into(),
+            "The winds call me to join your quest!".into(),
+            "Karis joined the party!".into(),
+        ],
+        None,
+        Some(RecruitNpc {
+            unit_id: "wind_seer".into(),
+        }),
+    );
+    spawn_npc_full(
+        &mut commands,
+        "Tyrell",
+        GridPosition::new(18, 14),
+        RECRUIT_NPC_COLOR,
+        vec![
+            "Name's Tyrell. I fight with fire!".into(),
+            "Let me come along. You'll need the firepower!".into(),
+            "Tyrell joined the party!".into(),
+        ],
+        None,
+        Some(RecruitNpc {
+            unit_id: "flame_user".into(),
+        }),
+    );
+    spawn_npc_full(
+        &mut commands,
+        "Amiti",
+        GridPosition::new(8, 16),
+        RECRUIT_NPC_COLOR,
+        vec![
+            "I am Amiti, an Aqua Monk.".into(),
+            "I shall lend my healing waters to your cause.".into(),
+            "Amiti joined the party!".into(),
+        ],
+        None,
+        Some(RecruitNpc {
+            unit_id: "aqua_monk".into(),
+        }),
+    );
+
     // Dialog UI (hidden initially)
     commands
         .spawn((
@@ -456,6 +510,18 @@ fn spawn_npc(
     dialog: Vec<String>,
     shopkeeper: Option<ShopKeeper>,
 ) {
+    spawn_npc_full(commands, name, pos, color, dialog, shopkeeper, None);
+}
+
+fn spawn_npc_full(
+    commands: &mut Commands,
+    name: &str,
+    pos: GridPosition,
+    color: Color,
+    dialog: Vec<String>,
+    shopkeeper: Option<ShopKeeper>,
+    recruit: Option<RecruitNpc>,
+) {
     let mut npc = commands.spawn((
         OverworldRoot,
         Npc {
@@ -469,6 +535,9 @@ fn spawn_npc(
 
     if let Some(shopkeeper) = shopkeeper {
         npc.insert(shopkeeper);
+    }
+    if let Some(recruit) = recruit {
+        npc.insert(recruit);
     }
 }
 
@@ -664,8 +733,9 @@ fn camera_follow_player(
 fn player_interact(
     keys: Res<ButtonInput<KeyCode>>,
     mut dialog: ResMut<DialogState>,
+    party: Res<Party>,
     player_query: Query<(&GridPosition, &PlayerMovement), With<Player>>,
-    npc_query: Query<(Entity, &GridPosition, &Npc)>,
+    npc_query: Query<(Entity, &GridPosition, &Npc, Option<&RecruitNpc>)>,
     mut dialog_box: Query<&mut Visibility, With<DialogBox>>,
     mut dialog_text: Query<&mut Text, With<DialogText>>,
 ) {
@@ -688,13 +758,26 @@ fn player_interact(
     };
     let face = GridPosition::new(player_pos.x + fx, player_pos.y + fy);
 
-    for (npc_entity, npc_pos, npc) in &npc_query {
+    for (npc_entity, npc_pos, npc, recruit) in &npc_query {
         if *npc_pos == face {
             dialog.active = true;
             dialog.speaker = npc.name.clone();
-            dialog.lines = npc.dialog.clone();
-            dialog.current_line = 0;
             dialog.speaker_entity = Some(npc_entity);
+            dialog.current_line = 0;
+
+            // If this is a recruit NPC whose unit is already in the party,
+            // show the "already recruited" dialog instead.
+            if let Some(recruit) = recruit {
+                let already_in_party = party.active.contains(&recruit.unit_id)
+                    || party.bench.contains(&recruit.unit_id);
+                if already_in_party {
+                    dialog.lines = vec!["Welcome back! Keep fighting the good fight.".into()];
+                } else {
+                    dialog.lines = npc.dialog.clone();
+                }
+            } else {
+                dialog.lines = npc.dialog.clone();
+            }
 
             if let Ok(mut vis) = dialog_box.get_single_mut() {
                 *vis = Visibility::Visible;
@@ -707,10 +790,13 @@ fn player_interact(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn dialog_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut dialog: ResMut<DialogState>,
     shopkeepers: Query<&ShopKeeper>,
+    recruit_npcs: Query<&RecruitNpc>,
+    mut party: ResMut<Party>,
     mut current_shop: ResMut<CurrentShop>,
     mut next_game_state: ResMut<NextState<GameState>>,
     mut dialog_box: Query<&mut Visibility, With<DialogBox>>,
@@ -728,12 +814,26 @@ fn dialog_input(
             if let Ok(mut vis) = dialog_box.get_single_mut() {
                 *vis = Visibility::Hidden;
             }
-            if let Some(npc_entity) = dialog.speaker_entity.take()
-                && let Ok(shopkeeper) = shopkeepers.get(npc_entity)
-            {
-                current_shop.items = shopkeeper.items.clone();
-                current_shop.equipment = shopkeeper.equipment.clone();
-                next_game_state.set(GameState::Shop);
+            if let Some(npc_entity) = dialog.speaker_entity.take() {
+                // Check for shopkeeper interaction
+                if let Ok(shopkeeper) = shopkeepers.get(npc_entity) {
+                    current_shop.items = shopkeeper.items.clone();
+                    current_shop.equipment = shopkeeper.equipment.clone();
+                    next_game_state.set(GameState::Shop);
+                }
+
+                // Check for recruitment interaction
+                if let Ok(recruit) = recruit_npcs.get(npc_entity) {
+                    let already_in_party = party.active.contains(&recruit.unit_id)
+                        || party.bench.contains(&recruit.unit_id);
+                    if !already_in_party {
+                        if party.active.len() < 4 {
+                            party.active.push(recruit.unit_id.clone());
+                        } else {
+                            party.bench.push(recruit.unit_id.clone());
+                        }
+                    }
+                }
             }
         } else if let Ok(mut text) = dialog_text.get_single_mut() {
             **text = format!("{}: {}", dialog.speaker, dialog.lines[dialog.current_line]);
@@ -776,5 +876,7 @@ fn handle_battle_end(
             next_game_state.set(GameState::Overworld);
             break;
         }
+        // Defeat: transition handled by BattlePhase::Defeat screen in battle_ui.
+        // We still need to consume the event so it doesn't fire repeatedly.
     }
 }
