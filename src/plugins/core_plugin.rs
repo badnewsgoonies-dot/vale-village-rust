@@ -1518,4 +1518,680 @@ mod tests {
         let debug_str = format!("{:?}", ach);
         assert!(debug_str.contains("Achievements"));
     }
+
+    // -----------------------------------------------------------------------
+    // Integration tests — data flow across systems
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_party_gold_accumulation() {
+        // Setup: start with default gold (100)
+        let mut party = Party::default();
+        assert_eq!(party.gold, 100, "Default party should start with 100 gold");
+
+        // Action: simulate gold rewards from multiple battles and shop transactions
+        party.gold += 50; // battle reward 1
+        assert_eq!(
+            party.gold, 150,
+            "Gold should be 150 after first battle reward"
+        );
+
+        party.gold += 120; // battle reward 2
+        assert_eq!(
+            party.gold, 270,
+            "Gold should be 270 after second battle reward"
+        );
+
+        party.gold -= 80; // shop purchase
+        assert_eq!(party.gold, 190, "Gold should be 190 after shop purchase");
+
+        party.gold += 300; // large battle reward
+        assert_eq!(
+            party.gold, 490,
+            "Gold should be 490 after large battle reward"
+        );
+
+        party.gold += 510; // accumulate to 1000
+        assert_eq!(
+            party.gold, 1000,
+            "Gold should reach 1000 for achievement threshold"
+        );
+
+        // Verify: gold accumulates correctly across many operations
+        party.gold += 5000;
+        party.gold -= 3000;
+        assert_eq!(
+            party.gold, 3000,
+            "Gold should be 3000 after further accumulation and spending"
+        );
+    }
+
+    #[test]
+    fn test_party_full_roster() {
+        // Setup: create a party with empty active and bench
+        let mut party = Party::default();
+        party.active.clear();
+        party.bench.clear();
+
+        // Action: add all 10 units — 4 active + 6 bench
+        let all_units = [
+            "adept",
+            "war-mage",
+            "mystic",
+            "ranger",
+            "sentinel",
+            "stormcaller",
+            "blaze",
+            "karis",
+            "tyrell",
+            "felix",
+        ];
+
+        // First 4 go to active party
+        for &unit_id in &all_units[..4] {
+            party.active.push(unit_id.to_string());
+        }
+        // Remaining 6 go to bench
+        for &unit_id in &all_units[4..] {
+            party.bench.push(unit_id.to_string());
+        }
+
+        // Verify: correct counts
+        assert_eq!(
+            party.active.len(),
+            4,
+            "Active party should have exactly 4 members"
+        );
+        assert_eq!(party.bench.len(), 6, "Bench should have exactly 6 members");
+        assert_eq!(
+            party.active.len() + party.bench.len(),
+            10,
+            "Total roster should be 10 units"
+        );
+
+        // Verify: specific members are in the correct slots
+        assert_eq!(
+            party.active[0], "adept",
+            "First active member should be adept"
+        );
+        assert_eq!(
+            party.active[3], "ranger",
+            "Fourth active member should be ranger"
+        );
+        assert_eq!(
+            party.bench[0], "sentinel",
+            "First bench member should be sentinel"
+        );
+        assert_eq!(party.bench[5], "felix", "Last bench member should be felix");
+
+        // Verify: no duplicates across active + bench
+        let mut all_roster: Vec<&str> = party.active.iter().map(|s| s.as_str()).collect();
+        all_roster.extend(party.bench.iter().map(|s| s.as_str()));
+        let unique: std::collections::HashSet<&str> = all_roster.iter().copied().collect();
+        assert_eq!(
+            unique.len(),
+            10,
+            "All 10 roster members should be unique across active and bench"
+        );
+    }
+
+    #[test]
+    fn test_bestiary_full_completion() {
+        // Setup: get all enemy IDs from the actual registry
+        let enemy_registry = crate::data::enemies::build_enemy_registry();
+        let total_enemy_types = enemy_registry.len();
+        let mut bestiary = Bestiary::default();
+
+        // Verify: starts empty
+        assert_eq!(
+            bestiary.entries.len(),
+            0,
+            "Bestiary should start with no entries"
+        );
+        assert!(
+            (bestiary.completion_percent(total_enemy_types) - 0.0).abs() < f32::EPSILON,
+            "Completion should be 0% initially"
+        );
+
+        // Action: record encounters for every enemy type
+        let mut count = 0;
+        for (enemy_id, enemy_def) in &enemy_registry {
+            bestiary.record_encounter(enemy_id, &enemy_def.name);
+            count += 1;
+
+            // Also defeat half of them
+            if count % 2 == 0 {
+                bestiary.record_defeat(enemy_id);
+            }
+        }
+
+        // Verify: 100% completion
+        assert_eq!(
+            bestiary.entries.len(),
+            total_enemy_types,
+            "Bestiary should contain all {} enemy types",
+            total_enemy_types
+        );
+        let completion = bestiary.completion_percent(total_enemy_types);
+        assert!(
+            (completion - 100.0).abs() < f32::EPSILON,
+            "Bestiary completion should be 100.0%, got {}",
+            completion
+        );
+
+        // Verify: all enemies are discovered
+        for enemy_id in enemy_registry.keys() {
+            assert!(
+                bestiary.is_discovered(enemy_id),
+                "Enemy '{}' should be discovered after recording encounter",
+                enemy_id
+            );
+        }
+
+        // Verify: encounter counts are correct
+        for entry in bestiary.entries.values() {
+            assert_eq!(
+                entry.times_encountered, 1,
+                "Enemy '{}' should have been encountered exactly once",
+                entry.enemy_id
+            );
+        }
+
+        // Verify: roughly half defeated
+        let total_defeated: u32 = bestiary.entries.values().map(|e| e.times_defeated).sum();
+        assert_eq!(
+            total_defeated as usize,
+            total_enemy_types / 2,
+            "Half of the enemies should have been defeated"
+        );
+    }
+
+    #[test]
+    fn test_achievements_progression_scenario() {
+        // Setup: build a fresh achievement tracker
+        let mut ach = Achievements::build_default();
+
+        // Verify: initial state — all locked
+        let (unlocked, total) = ach.completion_count();
+        assert_eq!(unlocked, 0, "No achievements should be unlocked at start");
+        assert_eq!(total, 10, "Total achievements should be 10");
+
+        // Action: simulate a game playthrough, unlocking achievements in order
+
+        // Phase 1: First battle won
+        ach.unlock(achievements::FIRST_BLOOD);
+        let (unlocked, _) = ach.completion_count();
+        assert_eq!(unlocked, 1, "Should have 1 achievement after first battle");
+        assert!(
+            ach.is_unlocked(achievements::FIRST_BLOOD),
+            "FIRST_BLOOD should be unlocked"
+        );
+
+        // Phase 2: Won flawlessly
+        ach.unlock(achievements::NO_KO);
+        let (unlocked, _) = ach.completion_count();
+        assert_eq!(
+            unlocked, 2,
+            "Should have 2 achievements after flawless victory"
+        );
+
+        // Phase 3: Recruited full party
+        ach.unlock(achievements::FULL_PARTY);
+        let (unlocked, _) = ach.completion_count();
+        assert_eq!(
+            unlocked, 3,
+            "Should have 3 achievements after full party recruitment"
+        );
+
+        // Phase 4: Entered the tower
+        ach.unlock(achievements::TOWER_ENTERED);
+        let (unlocked, _) = ach.completion_count();
+        assert_eq!(
+            unlocked, 4,
+            "Should have 4 achievements after entering tower"
+        );
+
+        // Phase 5: Hit bestiary milestone
+        ach.unlock(achievements::BESTIARY_25);
+        let (unlocked, _) = ach.completion_count();
+        assert_eq!(
+            unlocked, 5,
+            "Should have 5 achievements after 25 bestiary entries"
+        );
+
+        // Phase 6: Accumulated gold
+        ach.unlock(achievements::GOLD_1000);
+        let (unlocked, _) = ach.completion_count();
+        assert_eq!(
+            unlocked, 6,
+            "Should have 6 achievements after accumulating 1000 gold"
+        );
+
+        // Phase 7: Reached level 10
+        ach.unlock(achievements::LEVEL_10);
+        let (unlocked, _) = ach.completion_count();
+        assert_eq!(
+            unlocked, 7,
+            "Should have 7 achievements after reaching level 10"
+        );
+
+        // Phase 8: Completed the tower
+        ach.unlock(achievements::TOWER_COMPLETED);
+        let (unlocked, _) = ach.completion_count();
+        assert_eq!(
+            unlocked, 8,
+            "Should have 8 achievements after completing tower"
+        );
+
+        // Phase 9: Full bestiary
+        ach.unlock(achievements::BESTIARY_50);
+        let (unlocked, _) = ach.completion_count();
+        assert_eq!(
+            unlocked, 9,
+            "Should have 9 achievements after full bestiary"
+        );
+
+        // Phase 10: Hard mode victory
+        ach.unlock(achievements::HARD_MODE);
+        let (unlocked, total) = ach.completion_count();
+        assert_eq!(
+            unlocked, 10,
+            "Should have all 10 achievements after hard mode victory"
+        );
+        assert_eq!(
+            unlocked, total,
+            "Unlocked count should equal total for 100% completion"
+        );
+
+        // Verify: re-unlocking does not increase count
+        ach.unlock(achievements::FIRST_BLOOD);
+        ach.unlock(achievements::HARD_MODE);
+        let (unlocked, _) = ach.completion_count();
+        assert_eq!(
+            unlocked, 10,
+            "Re-unlocking achievements should not increase completion count"
+        );
+    }
+
+    #[test]
+    fn test_difficulty_affects_all_multipliers() {
+        // Setup: test each difficulty level
+        let difficulties = [
+            (
+                Difficulty::Easy,
+                0.8_f32,  // enemy_stat
+                1.2_f32,  // xp
+                1.3_f32,  // gold
+                0.15_f32, // flee bonus
+            ),
+            (Difficulty::Normal, 1.0_f32, 1.0_f32, 1.0_f32, 0.0_f32),
+            (Difficulty::Hard, 1.3_f32, 1.5_f32, 0.8_f32, -0.10_f32),
+        ];
+
+        for (difficulty, expected_enemy, expected_xp, expected_gold, expected_flee) in difficulties
+        {
+            let settings = DifficultySettings { difficulty };
+
+            // Verify: all multipliers are consistent for this difficulty
+            assert!(
+                (settings.enemy_stat_multiplier() - expected_enemy).abs() < f32::EPSILON,
+                "{:?} enemy_stat_multiplier should be {}, got {}",
+                difficulty,
+                expected_enemy,
+                settings.enemy_stat_multiplier()
+            );
+            assert!(
+                (settings.xp_multiplier() - expected_xp).abs() < f32::EPSILON,
+                "{:?} xp_multiplier should be {}, got {}",
+                difficulty,
+                expected_xp,
+                settings.xp_multiplier()
+            );
+            assert!(
+                (settings.gold_multiplier() - expected_gold).abs() < f32::EPSILON,
+                "{:?} gold_multiplier should be {}, got {}",
+                difficulty,
+                expected_gold,
+                settings.gold_multiplier()
+            );
+            assert!(
+                (settings.flee_chance_bonus() - expected_flee).abs() < f32::EPSILON,
+                "{:?} flee_chance_bonus should be {}, got {}",
+                difficulty,
+                expected_flee,
+                settings.flee_chance_bonus()
+            );
+        }
+
+        // Verify: cross-difficulty consistency — harder = higher enemy stats
+        let easy = DifficultySettings {
+            difficulty: Difficulty::Easy,
+        };
+        let normal = DifficultySettings {
+            difficulty: Difficulty::Normal,
+        };
+        let hard = DifficultySettings {
+            difficulty: Difficulty::Hard,
+        };
+
+        assert!(
+            easy.enemy_stat_multiplier() < normal.enemy_stat_multiplier(),
+            "Easy enemies should be weaker than Normal"
+        );
+        assert!(
+            normal.enemy_stat_multiplier() < hard.enemy_stat_multiplier(),
+            "Normal enemies should be weaker than Hard"
+        );
+        assert!(
+            hard.gold_multiplier() < easy.gold_multiplier(),
+            "Hard difficulty should give less gold than Easy"
+        );
+        assert!(
+            hard.flee_chance_bonus() < easy.flee_chance_bonus(),
+            "Hard difficulty should have lower flee chance than Easy"
+        );
+    }
+
+    #[test]
+    fn test_story_flags_quest_progression() {
+        // Setup: fresh party with no flags
+        let mut party = Party::default();
+        assert_eq!(
+            party.flag_count(),
+            0,
+            "Party should start with no story flags"
+        );
+
+        // Action: set flags in quest progression order
+
+        // Step 1: Talk to the elder
+        party.set_flag(story::TALKED_TO_ELDER, true);
+        assert!(
+            party.has_flag(story::TALKED_TO_ELDER),
+            "TALKED_TO_ELDER should be set after talking to elder"
+        );
+        assert_eq!(party.flag_count(), 1, "Should have 1 flag after step 1");
+
+        // Step 2: Win first battle
+        party.set_flag(story::FIRST_BATTLE_WON, true);
+        assert!(
+            party.has_flag(story::FIRST_BATTLE_WON),
+            "FIRST_BATTLE_WON should be set"
+        );
+        assert_eq!(party.flag_count(), 2, "Should have 2 flags after step 2");
+
+        // Step 3: Recruit party members
+        party.set_flag(story::RECRUITED_KARIS, true);
+        party.set_flag(story::RECRUITED_TYRELL, true);
+        party.set_flag(story::RECRUITED_AMITI, true);
+        assert_eq!(
+            party.flag_count(),
+            5,
+            "Should have 5 flags after recruiting all party members"
+        );
+
+        // Step 4: Enter the tower
+        party.set_flag(story::TOWER_ENTERED, true);
+        assert!(
+            party.has_flag(story::TOWER_ENTERED),
+            "TOWER_ENTERED should be set"
+        );
+        assert_eq!(party.flag_count(), 6, "Should have 6 flags after step 4");
+
+        // Step 5: Reach floor 5
+        party.set_flag(story::TOWER_FLOOR_5, true);
+        assert_eq!(party.flag_count(), 7, "Should have 7 flags after step 5");
+
+        // Step 6: Complete the tower
+        party.set_flag(story::TOWER_COMPLETED, true);
+        assert!(
+            party.has_flag(story::TOWER_COMPLETED),
+            "TOWER_COMPLETED should be set"
+        );
+        assert_eq!(
+            party.flag_count(),
+            8,
+            "Should have all 8 story flags set after completing the tower"
+        );
+
+        // Verify: all flags are set
+        let all_flags = [
+            story::TALKED_TO_ELDER,
+            story::FIRST_BATTLE_WON,
+            story::RECRUITED_KARIS,
+            story::RECRUITED_TYRELL,
+            story::RECRUITED_AMITI,
+            story::TOWER_ENTERED,
+            story::TOWER_FLOOR_5,
+            story::TOWER_COMPLETED,
+        ];
+        for flag in all_flags {
+            assert!(
+                party.has_flag(flag),
+                "Flag '{}' should be set after full quest progression",
+                flag
+            );
+        }
+
+        // Verify: has_flag returns false for unset flags
+        assert!(
+            !party.has_flag("nonexistent_quest"),
+            "has_flag should return false for flags that were never set"
+        );
+    }
+
+    #[test]
+    fn test_party_equipment_slots() {
+        // Setup: create a party with multiple active units
+        let mut party = Party {
+            active: vec![
+                "adept".to_string(),
+                "war-mage".to_string(),
+                "mystic".to_string(),
+                "ranger".to_string(),
+            ],
+            ..Default::default()
+        };
+
+        // Action: equip items to multiple units in different slots
+
+        // Equip adept: weapon + armor + accessory
+        let adept_equip = party.equipment.entry("adept".to_string()).or_default();
+        adept_equip.insert("weapon".to_string(), "iron-sword".to_string());
+        adept_equip.insert("armor".to_string(), "leather-armor".to_string());
+        adept_equip.insert("accessory".to_string(), "lucky-charm".to_string());
+
+        // Equip war-mage: weapon + armor
+        let wm_equip = party.equipment.entry("war-mage".to_string()).or_default();
+        wm_equip.insert("weapon".to_string(), "battle-axe".to_string());
+        wm_equip.insert("armor".to_string(), "iron-armor".to_string());
+
+        // Equip mystic: weapon only
+        let mystic_equip = party.equipment.entry("mystic".to_string()).or_default();
+        mystic_equip.insert("weapon".to_string(), "arcane-rod".to_string());
+
+        // Equip ranger: weapon + accessory
+        let ranger_equip = party.equipment.entry("ranger".to_string()).or_default();
+        ranger_equip.insert("weapon".to_string(), "short-bow".to_string());
+        ranger_equip.insert("accessory".to_string(), "speed-ring".to_string());
+
+        // Verify: equipment HashMap has correct structure
+        assert_eq!(
+            party.equipment.len(),
+            4,
+            "4 units should have equipment entries"
+        );
+
+        // Verify: adept has 3 slots
+        let adept_slots = &party.equipment["adept"];
+        assert_eq!(adept_slots.len(), 3, "Adept should have 3 equipped slots");
+        assert_eq!(
+            adept_slots["weapon"], "iron-sword",
+            "Adept weapon should be iron-sword"
+        );
+        assert_eq!(
+            adept_slots["armor"], "leather-armor",
+            "Adept armor should be leather-armor"
+        );
+        assert_eq!(
+            adept_slots["accessory"], "lucky-charm",
+            "Adept accessory should be lucky-charm"
+        );
+
+        // Verify: war-mage has 2 slots
+        let wm_slots = &party.equipment["war-mage"];
+        assert_eq!(wm_slots.len(), 2, "War Mage should have 2 equipped slots");
+        assert_eq!(
+            wm_slots["weapon"], "battle-axe",
+            "War Mage weapon should be battle-axe"
+        );
+
+        // Verify: mystic has 1 slot
+        assert_eq!(
+            party.equipment["mystic"].len(),
+            1,
+            "Mystic should have 1 equipped slot"
+        );
+
+        // Verify: ranger has 2 slots
+        let ranger_slots = &party.equipment["ranger"];
+        assert_eq!(ranger_slots.len(), 2, "Ranger should have 2 equipped slots");
+        assert_eq!(
+            ranger_slots["accessory"], "speed-ring",
+            "Ranger accessory should be speed-ring"
+        );
+
+        // Action: swap adept's weapon
+        party
+            .equipment
+            .get_mut("adept")
+            .unwrap()
+            .insert("weapon".to_string(), "steel-sword".to_string());
+
+        // Verify: weapon was updated, not duplicated
+        assert_eq!(
+            party.equipment["adept"]["weapon"], "steel-sword",
+            "Adept weapon should be updated to steel-sword"
+        );
+        assert_eq!(
+            party.equipment["adept"].len(),
+            3,
+            "Adept should still have 3 equipped slots after weapon swap"
+        );
+    }
+
+    #[test]
+    fn test_party_serialization_round_trip() {
+        // Setup: create a party with non-trivial state
+        let mut party = Party {
+            active: vec![
+                "adept".to_string(),
+                "war-mage".to_string(),
+                "mystic".to_string(),
+                "ranger".to_string(),
+            ],
+            bench: vec!["sentinel".to_string(), "stormcaller".to_string()],
+            gold: 2500,
+            inventory: vec![
+                "potion".to_string(),
+                "potion".to_string(),
+                "elixir".to_string(),
+            ],
+            difficulty: Difficulty::Hard,
+            ..Default::default()
+        };
+
+        // Set equipment
+        let mut adept_equip = HashMap::new();
+        adept_equip.insert("weapon".to_string(), "iron-sword".to_string());
+        adept_equip.insert("armor".to_string(), "leather-armor".to_string());
+        party.equipment.insert("adept".to_string(), adept_equip);
+
+        // Set unit levels and HP/PP
+        party.unit_levels.insert("adept".to_string(), (5, 1200));
+        party.unit_levels.insert("war-mage".to_string(), (3, 400));
+        party.unit_hp_pp.insert("adept".to_string(), (85, 20));
+        party.unit_hp_pp.insert("war-mage".to_string(), (60, 15));
+
+        // Set djinn assignments
+        party
+            .djinn_assignments
+            .insert("flint".to_string(), "adept".to_string());
+        party
+            .djinn_assignments
+            .insert("forge".to_string(), "war-mage".to_string());
+
+        // Set story flags
+        party.set_flag(story::TALKED_TO_ELDER, true);
+        party.set_flag(story::FIRST_BATTLE_WON, true);
+        party.set_flag(story::RECRUITED_KARIS, true);
+        party.set_flag(story::TOWER_ENTERED, true);
+
+        // Action: serialize to RON and deserialize back
+        let serialized =
+            ron::to_string(&party).expect("Party should serialize to RON successfully");
+        let deserialized: Party =
+            ron::from_str(&serialized).expect("Party should deserialize from RON successfully");
+
+        // Verify: all fields match after round trip
+        assert_eq!(
+            deserialized.active, party.active,
+            "Active roster should match after round trip"
+        );
+        assert_eq!(
+            deserialized.bench, party.bench,
+            "Bench roster should match after round trip"
+        );
+        assert_eq!(
+            deserialized.gold, party.gold,
+            "Gold should match after round trip"
+        );
+        assert_eq!(
+            deserialized.inventory, party.inventory,
+            "Inventory should match after round trip"
+        );
+        assert_eq!(
+            deserialized.difficulty, party.difficulty,
+            "Difficulty should match after round trip"
+        );
+        assert_eq!(
+            deserialized.equipment, party.equipment,
+            "Equipment should match after round trip"
+        );
+        assert_eq!(
+            deserialized.unit_levels, party.unit_levels,
+            "Unit levels should match after round trip"
+        );
+        assert_eq!(
+            deserialized.unit_hp_pp, party.unit_hp_pp,
+            "Unit HP/PP should match after round trip"
+        );
+        assert_eq!(
+            deserialized.djinn_assignments, party.djinn_assignments,
+            "Djinn assignments should match after round trip"
+        );
+        assert_eq!(
+            deserialized.story_flags, party.story_flags,
+            "Story flags should match after round trip"
+        );
+
+        // Verify: functional methods work on deserialized data
+        assert!(
+            deserialized.has_flag(story::TALKED_TO_ELDER),
+            "has_flag should work on deserialized party"
+        );
+        assert!(
+            deserialized.has_flag(story::TOWER_ENTERED),
+            "has_flag should work on deserialized party"
+        );
+        assert!(
+            !deserialized.has_flag(story::TOWER_COMPLETED),
+            "Unset flag should remain unset after round trip"
+        );
+        assert_eq!(
+            deserialized.flag_count(),
+            4,
+            "Flag count should be 4 after round trip"
+        );
+    }
 }

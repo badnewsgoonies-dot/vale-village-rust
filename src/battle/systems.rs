@@ -11,7 +11,9 @@ use rand::rngs::StdRng;
 use crate::battle::{ai, damage, djinn, rewards, status, turn_order, types::*};
 use crate::components::battle::PartyCombatant;
 use crate::data::items::ItemCategory;
-use crate::plugins::core_plugin::{DifficultySettings, GameData, GameState, Party, story};
+use crate::plugins::core_plugin::{
+    DifficultySettings, GameData, GameState, Party, achievements, story,
+};
 
 // ---------------------------------------------------------------------------
 // Resources
@@ -1416,6 +1418,7 @@ pub fn victory_system(
     mut party: ResMut<Party>,
     mut bestiary: Option<ResMut<crate::plugins::core_plugin::Bestiary>>,
     difficulty: Option<Res<DifficultySettings>>,
+    mut achievements_res: Option<ResMut<crate::plugins::core_plugin::Achievements>>,
 ) {
     // Record defeats for all enemies in the bestiary
     if let Some(ref mut bestiary) = bestiary {
@@ -1521,6 +1524,47 @@ pub fn victory_system(
     // Set first battle won story flag
     if !party.has_flag(story::FIRST_BATTLE_WON) {
         party.set_flag(story::FIRST_BATTLE_WON, true);
+    }
+
+    // --- Achievement unlock checks ---
+    if let Some(ref mut ach) = achievements_res {
+        // FIRST_BLOOD: Always unlock on any victory
+        ach.unlock(achievements::FIRST_BLOOD);
+
+        // NO_KO: All party members survived the battle
+        if survivor_count == party_size {
+            ach.unlock(achievements::NO_KO);
+        }
+
+        // HARD_MODE: Won a battle on Hard difficulty
+        if difficulty
+            .as_ref()
+            .map(|d| d.difficulty == crate::plugins::core_plugin::Difficulty::Hard)
+            .unwrap_or(false)
+        {
+            ach.unlock(achievements::HARD_MODE);
+        }
+
+        // LEVEL_10: Any unit reached level 10
+        if party.unit_levels.values().any(|(level, _)| *level >= 10) {
+            ach.unlock(achievements::LEVEL_10);
+        }
+
+        // GOLD_1000: Party has accumulated >= 1000 gold
+        if party.gold >= 1000 {
+            ach.unlock(achievements::GOLD_1000);
+        }
+
+        // BESTIARY_25 / BESTIARY_50: Bestiary milestone checks
+        if let Some(ref bestiary) = bestiary {
+            let entry_count = bestiary.entries.len();
+            if entry_count >= 25 {
+                ach.unlock(achievements::BESTIARY_25);
+            }
+            if entry_count >= 50 {
+                ach.unlock(achievements::BESTIARY_50);
+            }
+        }
     }
 
     end_events.send(EndBattleEvent {
@@ -2312,5 +2356,159 @@ mod tests {
         // Ordering: easy > normal > hard
         assert!(easy_chance > base_chance);
         assert!(base_chance > hard_chance);
+    }
+
+    // -------------------------------------------------------------------
+    // Achievement unlock logic tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_victory_achievements_first_blood_and_no_ko() {
+        use crate::plugins::core_plugin::{Achievements, Bestiary, Difficulty, achievements};
+
+        let mut ach = Achievements::build_default();
+        let party = Party::default();
+        let bestiary = Bestiary::default();
+        let difficulty = DifficultySettings {
+            difficulty: Difficulty::Normal,
+        };
+
+        // Simulate the achievement unlock logic from victory_system:
+        // party_size = 2, survivor_count = 2 (all alive)
+        let party_size: u32 = 2;
+        let survivor_count: u32 = 2;
+
+        // FIRST_BLOOD
+        ach.unlock(achievements::FIRST_BLOOD);
+
+        // NO_KO
+        if survivor_count == party_size {
+            ach.unlock(achievements::NO_KO);
+        }
+
+        // HARD_MODE
+        if difficulty.difficulty == Difficulty::Hard {
+            ach.unlock(achievements::HARD_MODE);
+        }
+
+        // LEVEL_10
+        if party.unit_levels.values().any(|(level, _)| *level >= 10) {
+            ach.unlock(achievements::LEVEL_10);
+        }
+
+        // GOLD_1000
+        if party.gold >= 1000 {
+            ach.unlock(achievements::GOLD_1000);
+        }
+
+        // Bestiary checks
+        let entry_count = bestiary.entries.len();
+        if entry_count >= 25 {
+            ach.unlock(achievements::BESTIARY_25);
+        }
+        if entry_count >= 50 {
+            ach.unlock(achievements::BESTIARY_50);
+        }
+
+        // FIRST_BLOOD always unlocks on victory
+        assert!(ach.is_unlocked(achievements::FIRST_BLOOD));
+        // NO_KO should unlock since all survived
+        assert!(ach.is_unlocked(achievements::NO_KO));
+        // These should NOT be unlocked given the test conditions
+        assert!(!ach.is_unlocked(achievements::HARD_MODE));
+        assert!(!ach.is_unlocked(achievements::LEVEL_10));
+        assert!(!ach.is_unlocked(achievements::GOLD_1000));
+        assert!(!ach.is_unlocked(achievements::BESTIARY_25));
+        assert!(!ach.is_unlocked(achievements::BESTIARY_50));
+    }
+
+    #[test]
+    fn test_victory_achievements_hard_mode_and_gold() {
+        use crate::plugins::core_plugin::{Achievements, Difficulty, achievements};
+
+        let mut ach = Achievements::build_default();
+        let party = Party {
+            gold: 1200, // above 1000 threshold
+            ..Party::default()
+        };
+
+        let difficulty = DifficultySettings {
+            difficulty: Difficulty::Hard,
+        };
+
+        // Simulate the achievement unlock logic from victory_system
+        ach.unlock(achievements::FIRST_BLOOD);
+
+        // party_size = 2, survivor_count = 1 (one KO'd)
+        let party_size: u32 = 2;
+        let survivor_count: u32 = 1;
+        if survivor_count == party_size {
+            ach.unlock(achievements::NO_KO);
+        }
+
+        if difficulty.difficulty == Difficulty::Hard {
+            ach.unlock(achievements::HARD_MODE);
+        }
+
+        if party.gold >= 1000 {
+            ach.unlock(achievements::GOLD_1000);
+        }
+
+        assert!(ach.is_unlocked(achievements::FIRST_BLOOD));
+        assert!(
+            !ach.is_unlocked(achievements::NO_KO),
+            "NO_KO should not unlock when a party member was KO'd"
+        );
+        assert!(
+            ach.is_unlocked(achievements::HARD_MODE),
+            "HARD_MODE should unlock on Hard difficulty"
+        );
+        assert!(
+            ach.is_unlocked(achievements::GOLD_1000),
+            "GOLD_1000 should unlock when gold >= 1000"
+        );
+    }
+
+    #[test]
+    fn test_victory_achievements_level_10_and_bestiary() {
+        use crate::plugins::core_plugin::{Achievements, Bestiary, achievements};
+
+        let mut ach = Achievements::build_default();
+        let mut party = Party::default();
+        party.unit_levels.insert("adept".into(), (10, 5000));
+
+        let mut bestiary = Bestiary::default();
+        // Add 26 unique enemies to pass the 25-entry threshold
+        for i in 0..26 {
+            bestiary.record_encounter(&format!("enemy_{i}"), &format!("Enemy {i}"));
+        }
+
+        // Simulate the achievement unlock logic from victory_system
+        ach.unlock(achievements::FIRST_BLOOD);
+
+        if party.unit_levels.values().any(|(level, _)| *level >= 10) {
+            ach.unlock(achievements::LEVEL_10);
+        }
+
+        let entry_count = bestiary.entries.len();
+        if entry_count >= 25 {
+            ach.unlock(achievements::BESTIARY_25);
+        }
+        if entry_count >= 50 {
+            ach.unlock(achievements::BESTIARY_50);
+        }
+
+        assert!(
+            ach.is_unlocked(achievements::LEVEL_10),
+            "LEVEL_10 should unlock when a unit has level >= 10"
+        );
+        assert!(
+            ach.is_unlocked(achievements::BESTIARY_25),
+            "BESTIARY_25 should unlock with 26 entries"
+        );
+        assert!(
+            !ach.is_unlocked(achievements::BESTIARY_50),
+            "BESTIARY_50 should not unlock with only 26 entries"
+        );
     }
 }

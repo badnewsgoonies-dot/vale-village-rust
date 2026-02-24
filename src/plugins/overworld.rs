@@ -9,6 +9,7 @@ use rand::Rng;
 
 use super::core_plugin::{GameData, GameState, Party, story};
 use super::shop::CurrentShop;
+use super::sprites::SpriteHandles;
 use super::tower::{
     TowerBattleActive, TowerState, build_floor_definitions, generate_floor_encounter,
 };
@@ -285,12 +286,50 @@ fn generate_tile_map() -> TileMap {
     }
 }
 
+// ── Sprite helpers ────────────────────────────────────────────────────
+
+/// Maps an NPC name to a sprite handle key in `SpriteHandles::units`.
+/// Returns `None` for NPCs that have no matching sprite.
+fn npc_sprite_key(npc_name: &str) -> Option<&'static str> {
+    match npc_name {
+        "Karis" => Some("karis"),
+        "Tyrell" => Some("tyrell"),
+        "Amiti" => Some("mystic"),
+        "Elder Dora" => Some("sentinel"),
+        "Shopkeeper" => Some("ranger"),
+        "Innkeeper" => Some("ranger"),
+        "Guard" => Some("sentinel"),
+        "Tower Guard" => Some("sentinel"),
+        "Scholar Liam" => Some("mystic"),
+        "Little Mia" => Some("karis"),
+        "Blacksmith" => Some("war-mage"),
+        "Fortune Teller" => Some("stormcaller"),
+        "Wandering Merchant" => Some("ranger"),
+        _ => None,
+    }
+}
+
+/// Build a `Sprite` from a loaded image handle with a custom size, or fall
+/// back to a coloured rectangle when the handle is not available.
+fn make_sprite(handle: Option<&Handle<Image>>, fallback_color: Color, size: Vec2) -> Sprite {
+    if let Some(h) = handle {
+        Sprite {
+            image: h.clone(),
+            custom_size: Some(size),
+            ..default()
+        }
+    } else {
+        Sprite::from_color(fallback_color, size)
+    }
+}
+
 // ── Setup ─────────────────────────────────────────────────────────────
 
 fn setup_overworld(
     mut commands: Commands,
     mut dialog: ResMut<DialogState>,
     mut return_position: ResMut<BattleReturnPosition>,
+    sprite_handles: Res<SpriteHandles>,
 ) {
     *dialog = DialogState::default();
 
@@ -350,12 +389,14 @@ fn setup_overworld(
         .player_position
         .take()
         .unwrap_or(GridPosition::new(15, 10));
+    let player_size = Vec2::new(TILE_SIZE * 0.8, TILE_SIZE * 0.8);
+    let player_sprite = make_sprite(sprite_handles.units.get("adept"), PLAYER_COLOR, player_size);
     commands.spawn((
         OverworldRoot,
         Player,
         PlayerMovement::default(),
         start,
-        Sprite::from_color(PLAYER_COLOR, Vec2::new(TILE_SIZE * 0.8, TILE_SIZE * 0.8)),
+        player_sprite,
         Transform::from_xyz(
             start.x as f32 * TILE_SIZE,
             -(start.y as f32) * TILE_SIZE,
@@ -375,6 +416,7 @@ fn setup_overworld(
             "But also great treasure. Prepare yourself well.".into(),
         ],
         None,
+        npc_sprite_key("Elder Dora").and_then(|k| sprite_handles.units.get(k)),
     );
     spawn_npc(
         &mut commands,
@@ -402,6 +444,7 @@ fn setup_overworld(
                 "short-bow".into(),
             ],
         }),
+        npc_sprite_key("Shopkeeper").and_then(|k| sprite_handles.units.get(k)),
     );
     spawn_npc_full(
         &mut commands,
@@ -418,6 +461,7 @@ fn setup_overworld(
         None,
         None,
         Some(InnKeeper { cost: 25 }),
+        npc_sprite_key("Innkeeper").and_then(|k| sprite_handles.units.get(k)),
     );
     spawn_npc(
         &mut commands,
@@ -432,6 +476,7 @@ fn setup_overworld(
             "If you stick to the stone paths, you'll be safe. The creatures don't venture onto them.".into(),
         ],
         None,
+        npc_sprite_key("Guard").and_then(|k| sprite_handles.units.get(k)),
     );
     spawn_npc(
         &mut commands,
@@ -446,6 +491,7 @@ fn setup_overworld(
             "My advice? Bring a full party, stock up on potions and antidotes, and don't be ashamed to retreat if things go wrong.".into(),
         ],
         None,
+        npc_sprite_key("Tower Guard").and_then(|k| sprite_handles.units.get(k)),
     );
 
     // Flavor NPCs
@@ -462,6 +508,7 @@ fn setup_overworld(
             "Vale Village was founded by Alchemy adepts who sealed a great power within the tower. But the seal weakens with each passing year. That is why the creatures grow bolder.".into(),
         ],
         None,
+        npc_sprite_key("Scholar Liam").and_then(|k| sprite_handles.units.get(k)),
     );
     spawn_npc(
         &mut commands,
@@ -476,6 +523,7 @@ fn setup_overworld(
             "Oh! I almost forgot — I found a weird symbol carved into the cave wall. It looked exactly like the rune on the tower door. Spooky, right?".into(),
         ],
         None,
+        npc_sprite_key("Little Mia").and_then(|k| sprite_handles.units.get(k)),
     );
 
     // Blacksmith (near the shop)
@@ -492,6 +540,7 @@ fn setup_overworld(
             "And keep your gear maintained! A chipped sword in the heat of battle is a death sentence.".into(),
         ],
         None,
+        npc_sprite_key("Blacksmith").and_then(|k| sprite_handles.units.get(k)),
     );
 
     // Fortune Teller (dynamic dialog based on story flags)
@@ -505,6 +554,7 @@ fn setup_overworld(
             None,
             None,
             None,
+            npc_sprite_key("Fortune Teller").and_then(|k| sprite_handles.units.get(k)),
         );
         commands.entity(ft_entity).insert(FortuneTellerNpc);
     }
@@ -523,6 +573,7 @@ fn setup_overworld(
             "If you ever venture beyond Vale Village, seek the port city of Champa. Their wares make our little shop look like a market stall.".into(),
         ],
         None,
+        npc_sprite_key("Wandering Merchant").and_then(|k| sprite_handles.units.get(k)),
     );
 
     // Recruitment NPCs
@@ -541,6 +592,7 @@ fn setup_overworld(
             unit_id: "wind_seer".into(),
         }),
         None,
+        npc_sprite_key("Karis").and_then(|k| sprite_handles.units.get(k)),
     );
     spawn_npc_full(
         &mut commands,
@@ -557,6 +609,7 @@ fn setup_overworld(
             unit_id: "flame_user".into(),
         }),
         None,
+        npc_sprite_key("Tyrell").and_then(|k| sprite_handles.units.get(k)),
     );
     spawn_npc_full(
         &mut commands,
@@ -573,6 +626,7 @@ fn setup_overworld(
             unit_id: "aqua_monk".into(),
         }),
         None,
+        npc_sprite_key("Amiti").and_then(|k| sprite_handles.units.get(k)),
     );
 
     // Dialog UI (hidden initially)
@@ -632,8 +686,19 @@ fn spawn_npc(
     color: Color,
     dialog: Vec<String>,
     shopkeeper: Option<ShopKeeper>,
+    sprite_handle: Option<&Handle<Image>>,
 ) {
-    spawn_npc_full(commands, name, pos, color, dialog, shopkeeper, None, None);
+    spawn_npc_full(
+        commands,
+        name,
+        pos,
+        color,
+        dialog,
+        shopkeeper,
+        None,
+        None,
+        sprite_handle,
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -646,7 +711,10 @@ fn spawn_npc_full(
     shopkeeper: Option<ShopKeeper>,
     recruit: Option<RecruitNpc>,
     innkeeper: Option<InnKeeper>,
+    sprite_handle: Option<&Handle<Image>>,
 ) -> Entity {
+    let npc_size = Vec2::new(TILE_SIZE * 0.7, TILE_SIZE * 0.7);
+    let sprite = make_sprite(sprite_handle, color, npc_size);
     let mut npc = commands.spawn((
         OverworldRoot,
         Npc {
@@ -654,7 +722,7 @@ fn spawn_npc_full(
             dialog,
         },
         pos,
-        Sprite::from_color(color, Vec2::new(TILE_SIZE * 0.7, TILE_SIZE * 0.7)),
+        sprite,
         Transform::from_xyz(pos.x as f32 * TILE_SIZE, -(pos.y as f32) * TILE_SIZE, 5.0),
     ));
 
