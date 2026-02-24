@@ -10,7 +10,8 @@ use super::core_plugin::GameState;
 use super::save::SaveSystem;
 use crate::battle::types::{
     BattleAction, BattlePhase, BattleRewards, BattleStateRes, BattleUnit, CommandMenu,
-    CommandSelectState, DamageEvent, EndBattleEvent, LevelUpEvent, UnitSide,
+    CommandSelectState, DamageEvent, EndBattleEvent, HealEvent, LevelUpEvent, UnitKoEvent,
+    UnitSide,
 };
 use crate::components::stats::Element;
 
@@ -25,6 +26,8 @@ const BRIGHT_GOLD: Color = Color::srgb(1.0, 0.84, 0.0);
 const DIM_TEXT: Color = Color::srgb(0.6, 0.55, 0.4);
 const MENU_BG: Color = Color::srgba(0.04, 0.04, 0.15, 0.92);
 const SELECTED_BG: Color = Color::srgba(0.85, 0.65, 0.13, 0.25);
+const LOG_BG: Color = Color::srgba(0.02, 0.02, 0.06, 0.80);
+const LOG_TEXT: Color = Color::srgb(0.75, 0.75, 0.75);
 
 // ── Marker components ─────────────────────────────────────────────────
 
@@ -106,12 +109,34 @@ struct EnemyTargetIndicator {
 }
 
 #[derive(Component)]
+struct BattleLogRoot;
+
+#[derive(Component)]
+struct BattleLogText;
+
+#[derive(Component)]
 struct VictoryScreenRoot;
 
 #[derive(Component)]
 struct DefeatScreenRoot;
 
 // ── Resources ─────────────────────────────────────────────────────────
+
+const BATTLE_LOG_MAX_MESSAGES: usize = 8;
+
+#[derive(Resource, Default)]
+struct BattleLog {
+    messages: Vec<String>,
+}
+
+impl BattleLog {
+    fn push(&mut self, message: String) {
+        self.messages.push(message);
+        if self.messages.len() > BATTLE_LOG_MAX_MESSAGES {
+            self.messages.remove(0);
+        }
+    }
+}
 
 #[derive(Resource, Default)]
 struct BattleResultCache {
@@ -215,6 +240,10 @@ impl Plugin for BattleUiPlugin {
                     cache_end_battle_event,
                     spawn_damage_numbers,
                     animate_damage_numbers,
+                    log_damage_events,
+                    log_heal_events,
+                    log_ko_events,
+                    update_battle_log_display,
                 )
                     .chain()
                     .run_if(in_state(GameState::Battle)),
@@ -249,6 +278,7 @@ fn setup_battle_ui(mut commands: Commands) {
     commands.insert_resource(BattleUiState::default());
     commands.insert_resource(BattleEnemies::default());
     commands.insert_resource(BattleParty::default());
+    commands.insert_resource(BattleLog::default());
 
     commands
         .spawn((
@@ -381,6 +411,35 @@ fn setup_battle_ui(mut commands: Commands) {
                         ));
                     });
                 }
+            });
+
+            // ── Battle log panel (bottom-left overlay) ──────
+            root.spawn((
+                BattleLogRoot,
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(8.0),
+                    bottom: Val::Px(60.0),
+                    width: Val::Px(320.0),
+                    max_height: Val::Px(140.0),
+                    flex_direction: FlexDirection::Column,
+                    justify_content: JustifyContent::FlexEnd,
+                    padding: UiRect::all(Val::Px(6.0)),
+                    overflow: Overflow::clip(),
+                    ..default()
+                },
+                BackgroundColor(LOG_BG),
+            ))
+            .with_children(|log_panel| {
+                log_panel.spawn((
+                    BattleLogText,
+                    Text::new(""),
+                    TextFont {
+                        font_size: 12.0,
+                        ..default()
+                    },
+                    TextColor(LOG_TEXT),
+                ));
             });
         });
 }
@@ -1353,6 +1412,80 @@ fn animate_damage_numbers(
     }
 }
 
+// ── Battle log systems ────────────────────────────────────────────────
+
+fn lookup_unit_name(units: &Query<&BattleUnit>, id: u32) -> String {
+    units
+        .iter()
+        .find(|u| u.id == id)
+        .map(|u| u.name.clone())
+        .unwrap_or_else(|| format!("#{id}"))
+}
+
+fn log_damage_events(
+    mut damage_events: EventReader<DamageEvent>,
+    mut battle_log: ResMut<BattleLog>,
+    units: Query<&BattleUnit>,
+) {
+    for event in damage_events.read() {
+        let attacker = lookup_unit_name(&units, event.attacker_id);
+        let target = lookup_unit_name(&units, event.target_id);
+
+        let message = if event.damage == 0 {
+            format!("{attacker}'s attack missed {target}!")
+        } else if event.was_blocked {
+            format!(
+                "{attacker} lands a critical hit on {target} for {} damage!",
+                event.damage
+            )
+        } else {
+            format!("{attacker} deals {} damage to {target}!", event.damage)
+        };
+
+        battle_log.push(message);
+    }
+}
+
+fn log_heal_events(
+    mut heal_events: EventReader<HealEvent>,
+    mut battle_log: ResMut<BattleLog>,
+    units: Query<&BattleUnit>,
+) {
+    for event in heal_events.read() {
+        let source = lookup_unit_name(&units, event.source_id);
+        let target = lookup_unit_name(&units, event.target_id);
+
+        let message = if event.revived {
+            format!("{source} revives {target}!")
+        } else {
+            format!("{source} heals {target} for {} HP!", event.amount)
+        };
+
+        battle_log.push(message);
+    }
+}
+
+fn log_ko_events(mut ko_events: EventReader<UnitKoEvent>, mut battle_log: ResMut<BattleLog>) {
+    for event in ko_events.read() {
+        battle_log.push(format!("{} has been defeated!", event.unit_name));
+    }
+}
+
+fn update_battle_log_display(
+    battle_log: Res<BattleLog>,
+    mut text_query: Query<&mut Text, With<BattleLogText>>,
+) {
+    if !battle_log.is_changed() {
+        return;
+    }
+
+    let Ok(mut text) = text_query.get_single_mut() else {
+        return;
+    };
+
+    **text = battle_log.messages.join("\n");
+}
+
 fn cleanup_battle(mut commands: Commands, query: Query<Entity, With<BattleRoot>>) {
     for entity in &query {
         commands.entity(entity).despawn();
@@ -1361,4 +1494,5 @@ fn cleanup_battle(mut commands: Commands, query: Query<Entity, With<BattleRoot>>
     commands.remove_resource::<BattleEnemies>();
     commands.remove_resource::<BattleParty>();
     commands.remove_resource::<BattleResultCache>();
+    commands.remove_resource::<BattleLog>();
 }

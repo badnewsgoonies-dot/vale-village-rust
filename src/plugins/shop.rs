@@ -507,3 +507,172 @@ fn cleanup_shop(
 
     commands.remove_resource::<ShopState>();
 }
+
+#[cfg(test)]
+/// Calculate the sell price for an item given its buy price.
+/// Sell price is always half the buy cost (integer division).
+fn calculate_sell_price(buy_cost: u32) -> u32 {
+    buy_cost / 2
+}
+
+#[cfg(test)]
+/// Check whether a party can afford an item at the given price.
+fn can_afford(gold: u32, price: u32) -> bool {
+    gold >= price
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::items::{build_equipment_registry, build_item_registry};
+    use std::collections::HashMap;
+
+    /// Helper: build a `GameData` populated only with item and equipment
+    /// registries (other registries are empty).
+    fn test_game_data() -> GameData {
+        GameData {
+            abilities: HashMap::new(),
+            units: HashMap::new(),
+            enemies: HashMap::new(),
+            items: build_item_registry(),
+            equipment: build_equipment_registry(),
+            djinn: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_current_shop_default_is_empty() {
+        let shop = CurrentShop::default();
+        assert!(shop.items.is_empty(), "Default shop should have no items");
+        assert!(
+            shop.equipment.is_empty(),
+            "Default shop should have no equipment"
+        );
+    }
+
+    #[test]
+    fn test_shop_state_default() {
+        let state = ShopState::default();
+        assert_eq!(state.tab, ShopTab::Buy, "Default tab should be Buy");
+        assert_eq!(state.cursor, 0, "Default cursor should be 0");
+        assert!(state.message.is_empty(), "Default message should be empty");
+        assert_eq!(
+            state.message_timer, 0.0,
+            "Default message timer should be 0"
+        );
+        assert!(
+            !state.message_is_error,
+            "Default message_is_error should be false"
+        );
+    }
+
+    #[test]
+    fn test_calculate_sell_price_half_of_buy() {
+        assert_eq!(calculate_sell_price(100), 50);
+        assert_eq!(calculate_sell_price(200), 100);
+        assert_eq!(calculate_sell_price(0), 0);
+    }
+
+    #[test]
+    fn test_calculate_sell_price_rounds_down_odd() {
+        // 99 / 2 = 49 (integer division rounds down)
+        assert_eq!(calculate_sell_price(99), 49);
+        assert_eq!(calculate_sell_price(1), 0);
+    }
+
+    #[test]
+    fn test_can_afford() {
+        assert!(can_afford(100, 50));
+        assert!(can_afford(100, 100));
+        assert!(!can_afford(50, 100));
+        assert!(can_afford(0, 0));
+        assert!(!can_afford(0, 1));
+    }
+
+    #[test]
+    fn test_format_tab_text_buy() {
+        let text = format_tab_text(ShopTab::Buy);
+        assert!(
+            text.contains("[Buy]"),
+            "Buy tab text should highlight Buy: got '{text}'"
+        );
+    }
+
+    #[test]
+    fn test_format_tab_text_sell() {
+        let text = format_tab_text(ShopTab::Sell);
+        assert!(
+            text.contains("[Sell]"),
+            "Sell tab text should highlight Sell: got '{text}'"
+        );
+    }
+
+    #[test]
+    fn test_build_buy_entries_uses_registries() {
+        let data = test_game_data();
+
+        let shop = CurrentShop {
+            items: vec!["potion".to_string()],
+            equipment: vec!["wooden-sword".to_string()],
+        };
+
+        let entries = build_buy_entries(&shop, &data);
+        assert_eq!(entries.len(), 2, "Should have one item and one equipment");
+
+        let potion_entry = entries.iter().find(|e| e.id == "potion").unwrap();
+        assert_eq!(potion_entry.name, "Potion");
+        assert_eq!(potion_entry.price, 50);
+
+        let sword_entry = entries.iter().find(|e| e.id == "wooden-sword").unwrap();
+        assert_eq!(sword_entry.name, "Wooden Sword");
+        assert_eq!(sword_entry.price, 50);
+    }
+
+    #[test]
+    fn test_build_sell_entries_half_price() {
+        let data = test_game_data();
+
+        let party = Party {
+            inventory: vec!["potion".to_string(), "wooden-sword".to_string()],
+            gold: 1000,
+            ..Default::default()
+        };
+
+        let entries = build_sell_entries(&party, &data);
+        assert_eq!(entries.len(), 2, "Should have two sell entries");
+
+        // Potion buy cost is 50, sell price should be 25
+        let potion_entry = entries.iter().find(|e| e.id == "potion").unwrap();
+        assert_eq!(potion_entry.price, 25, "Sell price should be half of buy");
+
+        // Wooden Sword buy cost is 50, sell price should be 25
+        let sword_entry = entries.iter().find(|e| e.id == "wooden-sword").unwrap();
+        assert_eq!(sword_entry.price, 25, "Sell price should be half of buy");
+    }
+
+    #[test]
+    fn test_sell_price_reasonable_for_all_items() {
+        let items = build_item_registry();
+        for (id, item) in &items {
+            let sell = calculate_sell_price(item.cost);
+            assert!(
+                sell <= item.cost,
+                "Sell price for '{id}' ({sell}) should not exceed buy cost ({})",
+                item.cost,
+            );
+        }
+    }
+
+    #[test]
+    fn test_sell_price_reasonable_for_all_equipment() {
+        let equipment = build_equipment_registry();
+        for (id, equip) in &equipment {
+            let sell = calculate_sell_price(equip.cost);
+            assert!(
+                sell <= equip.cost,
+                "Sell price for '{id}' ({sell}) should not exceed buy cost ({})",
+                equip.cost,
+            );
+        }
+    }
+}

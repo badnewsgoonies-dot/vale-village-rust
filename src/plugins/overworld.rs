@@ -36,6 +36,8 @@ const PLAYER_COLOR: Color = Color::srgb(0.85, 0.65, 0.13);
 const NPC_COLOR: Color = Color::srgb(0.3, 0.5, 0.8);
 const NPC_ALT_COLOR: Color = Color::srgb(0.7, 0.4, 0.25);
 const TOWER: Color = Color::srgb(0.4, 0.3, 0.5);
+const TALL_GRASS: Color = Color::srgb(0.12, 0.35, 0.10);
+const CAVE_GROUND: Color = Color::srgb(0.35, 0.30, 0.25);
 const RECRUIT_NPC_COLOR: Color = Color::srgb(0.2, 0.7, 0.3);
 
 // UI colors
@@ -121,7 +123,9 @@ impl TileMap {
 
     fn is_walkable(&self, x: i32, y: i32) -> bool {
         let t = self.get(x, y);
-        t != 2 && t != 3 && t != 4 && t != 6 // not wall, water, building-interior, tower
+        // Walkable: grass (0), path (1), door (5), tall grass (7), cave ground (8)
+        // Not walkable: wall (2), water (3), building-interior (4), tower (6)
+        t != 2 && t != 3 && t != 4 && t != 6
     }
 
     fn is_encounter_zone(&self, x: i32, y: i32) -> bool {
@@ -231,28 +235,37 @@ fn generate_tile_map() -> TileMap {
         tiles[(8 * MAP_WIDTH + x) as usize] = 2;
     }
 
-    // Encounter zones: tall grass and cave-like ground patches.
-    let mut mark_encounter = |x: i32, y: i32| {
+    // Encounter zones: tall grass, cave-like ground, and forest edge patches.
+    // Each zone gets a distinct tile type so players can visually identify danger areas.
+    let mut mark_encounter_with_tile = |x: i32, y: i32, tile_type: u8| {
         if x < 0 || y < 0 || x >= MAP_WIDTH || y >= MAP_HEIGHT {
             return;
         }
         let idx = (y * MAP_WIDTH + x) as usize;
         if tiles[idx] == 0 || tiles[idx] == 1 {
             encounter_zones[idx] = true;
+            tiles[idx] = tile_type;
         }
     };
 
-    // Tall grass (north of town)
+    // Tall grass (north of town) — tile type 7
     for y in 2..6 {
         for x in 9..14 {
-            mark_encounter(x, y);
+            mark_encounter_with_tile(x, y, 7);
         }
     }
 
-    // Cave-like patch (south-east plains)
+    // Cave-like patch (south-east plains) — tile type 8
     for y in 14..18 {
         for x in 16..21 {
-            mark_encounter(x, y);
+            mark_encounter_with_tile(x, y, 8);
+        }
+    }
+
+    // Forest edge (west side of map) — tile type 7
+    for y in 12..17 {
+        for x in 2..6 {
+            mark_encounter_with_tile(x, y, 7);
         }
     }
 
@@ -304,6 +317,8 @@ fn setup_overworld(
                 4 => BUILDING,
                 5 => DOOR,
                 6 => TOWER,
+                7 => TALL_GRASS,
+                8 => CAVE_GROUND,
                 _ => GRASS,
             };
 

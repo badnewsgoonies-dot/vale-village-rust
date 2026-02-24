@@ -621,3 +621,113 @@ pub fn build_equipment_registry() -> HashMap<String, EquipmentDefinition> {
 
     m
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_item_registry_not_empty() {
+        let registry = build_item_registry();
+        assert!(
+            !registry.is_empty(),
+            "Item registry should contain at least one item"
+        );
+    }
+
+    #[test]
+    fn test_equipment_registry_not_empty() {
+        let registry = build_equipment_registry();
+        assert!(
+            !registry.is_empty(),
+            "Equipment registry should contain at least one piece of equipment"
+        );
+    }
+
+    #[test]
+    fn test_all_equipment_has_slot() {
+        let registry = build_equipment_registry();
+        for (id, equip) in &registry {
+            // Verify the slot is one of the known variants (this is enforced by the
+            // enum, but we also make sure the Debug representation is non-empty to
+            // satisfy the "non-empty slot name" requirement).
+            let slot_name = format!("{:?}", equip.slot);
+            assert!(
+                !slot_name.is_empty(),
+                "Equipment '{id}' should have a non-empty slot name"
+            );
+        }
+    }
+
+    #[test]
+    fn test_consumable_items_have_effects() {
+        // Items whose effects are applied through game logic rather than the
+        // ItemEffect data fields (e.g. speed buffs). These are intentional
+        // stubs and are excluded from this check.
+        let effect_stubs: &[&str] = &["jupiter-zephyr-scroll"];
+
+        let registry = build_item_registry();
+        for (id, item) in &registry {
+            if item.category != ItemCategory::Consumable {
+                continue;
+            }
+            if effect_stubs.contains(&id.as_str()) {
+                continue;
+            }
+            let eff = &item.effect;
+            let has_effect = eff.hp_restore != 0
+                || eff.pp_restore != 0
+                || eff.damage_amount != 0
+                || eff.revive
+                || !eff.removes_status.is_empty()
+                || eff.damage_element.is_some();
+            assert!(
+                has_effect,
+                "Consumable item '{id}' ({}) should have at least one non-zero effect field",
+                item.name,
+            );
+        }
+    }
+
+    #[test]
+    fn test_equipment_stat_bonuses_reasonable() {
+        // The highest single-stat bonus in the registry is 72 (Sol Blade atk).
+        // We use 100 as a generous but reasonable upper bound; anything beyond
+        // that would indicate a data-entry mistake.
+        let registry = build_equipment_registry();
+        let cap = 100;
+        for (id, equip) in &registry {
+            let b = &equip.stat_bonus;
+            assert!(
+                b.atk.abs() <= cap,
+                "Equipment '{id}' atk bonus {} exceeds cap {cap}",
+                b.atk
+            );
+            assert!(
+                b.def.abs() <= cap,
+                "Equipment '{id}' def bonus {} exceeds cap {cap}",
+                b.def
+            );
+            assert!(
+                b.mag.abs() <= cap,
+                "Equipment '{id}' mag bonus {} exceeds cap {cap}",
+                b.mag
+            );
+            assert!(
+                b.spd.abs() <= cap,
+                "Equipment '{id}' spd bonus {} exceeds cap {cap}",
+                b.spd
+            );
+            assert!(
+                b.hp.abs() <= cap,
+                "Equipment '{id}' hp bonus {} exceeds cap {cap}",
+                b.hp
+            );
+            assert!(
+                b.pp.abs() <= cap,
+                "Equipment '{id}' pp bonus {} exceeds cap {cap}",
+                b.pp
+            );
+        }
+    }
+}

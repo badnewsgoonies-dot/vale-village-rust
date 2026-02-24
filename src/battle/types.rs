@@ -137,6 +137,60 @@ impl BattleStatusEffect {
             BattleStatusEffect::Immunity { .. } => StatusKind::Immunity,
         }
     }
+
+    /// Returns a human-readable display name for this status effect.
+    #[allow(dead_code)]
+    pub fn display_name(&self) -> &str {
+        match self {
+            BattleStatusEffect::Poison { .. } => "Poison",
+            BattleStatusEffect::Burn { .. } => "Burn",
+            BattleStatusEffect::Freeze { .. } => "Freeze",
+            BattleStatusEffect::Paralyze { .. } => "Paralyze",
+            BattleStatusEffect::Stun { .. } => "Stun",
+            BattleStatusEffect::Blind { .. } => "Blind",
+            BattleStatusEffect::HealOverTime { .. } => "Regen",
+            BattleStatusEffect::Buff { stat, .. } => match stat {
+                StatKind::Atk => "ATK Up",
+                StatKind::Def => "DEF Up",
+                StatKind::Mag => "MAG Up",
+                StatKind::Spd => "SPD Up",
+                StatKind::Luck => "LCK Up",
+            },
+            BattleStatusEffect::Debuff { stat, .. } => match stat {
+                StatKind::Atk => "ATK Down",
+                StatKind::Def => "DEF Down",
+                StatKind::Mag => "MAG Down",
+                StatKind::Spd => "SPD Down",
+                StatKind::Luck => "LCK Down",
+            },
+            BattleStatusEffect::Shield { .. } => "Shield",
+            BattleStatusEffect::Invulnerable { .. } => "Invulnerable",
+            BattleStatusEffect::DamageReduction { .. } => "Damage Reduction",
+            BattleStatusEffect::AutoRevive { .. } => "Auto-Revive",
+            BattleStatusEffect::Immunity { .. } => "Immunity",
+        }
+    }
+
+    /// Returns the remaining duration in turns for this status effect.
+    #[allow(dead_code)]
+    pub fn remaining_turns(&self) -> i32 {
+        match self {
+            BattleStatusEffect::Poison { duration }
+            | BattleStatusEffect::Burn { duration }
+            | BattleStatusEffect::Freeze { duration }
+            | BattleStatusEffect::Stun { duration }
+            | BattleStatusEffect::Paralyze { duration }
+            | BattleStatusEffect::Blind { duration }
+            | BattleStatusEffect::Invulnerable { duration } => *duration,
+            BattleStatusEffect::HealOverTime { duration, .. } => *duration,
+            BattleStatusEffect::Buff { duration, .. } => *duration,
+            BattleStatusEffect::Debuff { duration, .. } => *duration,
+            BattleStatusEffect::Shield { duration, .. } => *duration,
+            BattleStatusEffect::DamageReduction { duration, .. } => *duration,
+            BattleStatusEffect::AutoRevive { uses_remaining, .. } => *uses_remaining,
+            BattleStatusEffect::Immunity { duration, .. } => *duration,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -201,6 +255,53 @@ impl BattleUnit {
 
     pub fn is_alive(&self) -> bool {
         self.hp > 0
+    }
+
+    /// Returns a comma-separated summary of active status effects, e.g. "Poison, Burn".
+    /// Returns an empty string if no status effects are active.
+    #[allow(dead_code)]
+    pub fn status_summary(&self) -> String {
+        self.status_effects
+            .iter()
+            .map(|s| s.display_name())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    /// Returns current HP as a percentage from 0.0 to 1.0.
+    /// Returns 0.0 if max_hp is zero (avoids division by zero).
+    #[allow(dead_code)]
+    pub fn hp_percent(&self) -> f32 {
+        if self.max_hp == 0 {
+            return 0.0;
+        }
+        (self.hp as f32 / self.max_hp as f32).clamp(0.0, 1.0)
+    }
+
+    /// Returns current PP as a percentage from 0.0 to 1.0.
+    /// Returns 0.0 if max_pp is zero (avoids division by zero).
+    #[allow(dead_code)]
+    pub fn pp_percent(&self) -> f32 {
+        if self.max_pp == 0 {
+            return 0.0;
+        }
+        (self.pp as f32 / self.max_pp as f32).clamp(0.0, 1.0)
+    }
+
+    /// Returns true if any Debuff status effect is active on this unit.
+    #[allow(dead_code)]
+    pub fn is_debuffed(&self) -> bool {
+        self.status_effects
+            .iter()
+            .any(|s| matches!(s, BattleStatusEffect::Debuff { .. }))
+    }
+
+    /// Returns true if any Buff status effect is active on this unit.
+    #[allow(dead_code)]
+    pub fn is_buffed(&self) -> bool {
+        self.status_effects
+            .iter()
+            .any(|s| matches!(s, BattleStatusEffect::Buff { .. }))
     }
 }
 
@@ -457,4 +558,503 @@ pub mod constants {
 
     pub const DAMAGE_VARIANCE_MIN: f32 = 0.9;
     pub const DAMAGE_VARIANCE_MAX: f32 = 1.1;
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper to build a `BattleUnit` with sensible defaults for testing.
+    fn make_unit(hp: i32, max_hp: i32, pp: i32, max_pp: i32) -> BattleUnit {
+        BattleUnit {
+            id: 1,
+            name: "TestUnit".to_string(),
+            side: UnitSide::Player,
+            element: Element::Venus,
+            level: 5,
+            hp,
+            max_hp,
+            pp,
+            max_pp,
+            atk: 20,
+            def: 15,
+            mag: 10,
+            spd: 12,
+            luck: 8,
+            status_effects: Vec::new(),
+            ability_ids: Vec::new(),
+            djinn_ids: Vec::new(),
+            damage_taken: 0,
+            damage_dealt: 0,
+            xp: 0,
+            growth_rates: GrowthRates::default(),
+        }
+    }
+
+    // -- BattleStatusEffect::display_name --
+
+    #[test]
+    fn display_name_simple_statuses() {
+        assert_eq!(
+            BattleStatusEffect::Poison { duration: 3 }.display_name(),
+            "Poison"
+        );
+        assert_eq!(
+            BattleStatusEffect::Burn { duration: 2 }.display_name(),
+            "Burn"
+        );
+        assert_eq!(
+            BattleStatusEffect::Freeze { duration: 1 }.display_name(),
+            "Freeze"
+        );
+        assert_eq!(
+            BattleStatusEffect::Paralyze { duration: 2 }.display_name(),
+            "Paralyze"
+        );
+        assert_eq!(
+            BattleStatusEffect::Stun { duration: 1 }.display_name(),
+            "Stun"
+        );
+        assert_eq!(
+            BattleStatusEffect::Blind { duration: 3 }.display_name(),
+            "Blind"
+        );
+    }
+
+    #[test]
+    fn display_name_heal_over_time() {
+        let hot = BattleStatusEffect::HealOverTime {
+            heal_per_turn: 10,
+            duration: 3,
+        };
+        assert_eq!(hot.display_name(), "Regen");
+    }
+
+    #[test]
+    fn display_name_buff_variants() {
+        let atk_up = BattleStatusEffect::Buff {
+            stat: StatKind::Atk,
+            modifier: 5,
+            duration: 3,
+        };
+        assert_eq!(atk_up.display_name(), "ATK Up");
+
+        let def_up = BattleStatusEffect::Buff {
+            stat: StatKind::Def,
+            modifier: 3,
+            duration: 2,
+        };
+        assert_eq!(def_up.display_name(), "DEF Up");
+
+        let mag_up = BattleStatusEffect::Buff {
+            stat: StatKind::Mag,
+            modifier: 4,
+            duration: 3,
+        };
+        assert_eq!(mag_up.display_name(), "MAG Up");
+
+        let spd_up = BattleStatusEffect::Buff {
+            stat: StatKind::Spd,
+            modifier: 2,
+            duration: 2,
+        };
+        assert_eq!(spd_up.display_name(), "SPD Up");
+
+        let lck_up = BattleStatusEffect::Buff {
+            stat: StatKind::Luck,
+            modifier: 1,
+            duration: 1,
+        };
+        assert_eq!(lck_up.display_name(), "LCK Up");
+    }
+
+    #[test]
+    fn display_name_debuff_variants() {
+        let atk_down = BattleStatusEffect::Debuff {
+            stat: StatKind::Atk,
+            modifier: -5,
+            duration: 3,
+        };
+        assert_eq!(atk_down.display_name(), "ATK Down");
+
+        let def_down = BattleStatusEffect::Debuff {
+            stat: StatKind::Def,
+            modifier: -3,
+            duration: 2,
+        };
+        assert_eq!(def_down.display_name(), "DEF Down");
+
+        let mag_down = BattleStatusEffect::Debuff {
+            stat: StatKind::Mag,
+            modifier: -4,
+            duration: 3,
+        };
+        assert_eq!(mag_down.display_name(), "MAG Down");
+
+        let spd_down = BattleStatusEffect::Debuff {
+            stat: StatKind::Spd,
+            modifier: -2,
+            duration: 2,
+        };
+        assert_eq!(spd_down.display_name(), "SPD Down");
+
+        let lck_down = BattleStatusEffect::Debuff {
+            stat: StatKind::Luck,
+            modifier: -1,
+            duration: 1,
+        };
+        assert_eq!(lck_down.display_name(), "LCK Down");
+    }
+
+    #[test]
+    fn display_name_defensive_statuses() {
+        let shield = BattleStatusEffect::Shield {
+            remaining_charges: 2,
+            duration: 3,
+        };
+        assert_eq!(shield.display_name(), "Shield");
+
+        let invuln = BattleStatusEffect::Invulnerable { duration: 1 };
+        assert_eq!(invuln.display_name(), "Invulnerable");
+
+        let dr = BattleStatusEffect::DamageReduction {
+            percent: 0.25,
+            duration: 3,
+        };
+        assert_eq!(dr.display_name(), "Damage Reduction");
+
+        let auto_rev = BattleStatusEffect::AutoRevive {
+            hp_percent: 0.5,
+            uses_remaining: 1,
+        };
+        assert_eq!(auto_rev.display_name(), "Auto-Revive");
+
+        let immunity = BattleStatusEffect::Immunity {
+            types: vec![StatusKind::Poison],
+            all_negative: false,
+            duration: 5,
+        };
+        assert_eq!(immunity.display_name(), "Immunity");
+    }
+
+    // -- BattleStatusEffect::remaining_turns --
+
+    #[test]
+    fn remaining_turns_simple_statuses() {
+        assert_eq!(
+            BattleStatusEffect::Poison { duration: 3 }.remaining_turns(),
+            3
+        );
+        assert_eq!(
+            BattleStatusEffect::Burn { duration: 2 }.remaining_turns(),
+            2
+        );
+        assert_eq!(
+            BattleStatusEffect::Freeze { duration: 1 }.remaining_turns(),
+            1
+        );
+        assert_eq!(
+            BattleStatusEffect::Stun { duration: 4 }.remaining_turns(),
+            4
+        );
+        assert_eq!(
+            BattleStatusEffect::Paralyze { duration: 2 }.remaining_turns(),
+            2
+        );
+        assert_eq!(
+            BattleStatusEffect::Blind { duration: 5 }.remaining_turns(),
+            5
+        );
+        assert_eq!(
+            BattleStatusEffect::Invulnerable { duration: 1 }.remaining_turns(),
+            1
+        );
+    }
+
+    #[test]
+    fn remaining_turns_compound_statuses() {
+        let hot = BattleStatusEffect::HealOverTime {
+            heal_per_turn: 10,
+            duration: 3,
+        };
+        assert_eq!(hot.remaining_turns(), 3);
+
+        let buff = BattleStatusEffect::Buff {
+            stat: StatKind::Atk,
+            modifier: 5,
+            duration: 4,
+        };
+        assert_eq!(buff.remaining_turns(), 4);
+
+        let debuff = BattleStatusEffect::Debuff {
+            stat: StatKind::Def,
+            modifier: -3,
+            duration: 2,
+        };
+        assert_eq!(debuff.remaining_turns(), 2);
+
+        let shield = BattleStatusEffect::Shield {
+            remaining_charges: 2,
+            duration: 5,
+        };
+        assert_eq!(shield.remaining_turns(), 5);
+
+        let dr = BattleStatusEffect::DamageReduction {
+            percent: 0.25,
+            duration: 3,
+        };
+        assert_eq!(dr.remaining_turns(), 3);
+
+        let auto_rev = BattleStatusEffect::AutoRevive {
+            hp_percent: 0.5,
+            uses_remaining: 1,
+        };
+        assert_eq!(auto_rev.remaining_turns(), 1);
+
+        let immunity = BattleStatusEffect::Immunity {
+            types: vec![],
+            all_negative: true,
+            duration: 6,
+        };
+        assert_eq!(immunity.remaining_turns(), 6);
+    }
+
+    // -- BattleStatusEffect::is_negative --
+
+    #[test]
+    fn is_negative_returns_true_for_harmful_statuses() {
+        assert!(BattleStatusEffect::Poison { duration: 3 }.is_negative());
+        assert!(BattleStatusEffect::Burn { duration: 2 }.is_negative());
+        assert!(BattleStatusEffect::Freeze { duration: 1 }.is_negative());
+        assert!(BattleStatusEffect::Stun { duration: 1 }.is_negative());
+        assert!(BattleStatusEffect::Paralyze { duration: 2 }.is_negative());
+        assert!(BattleStatusEffect::Blind { duration: 3 }.is_negative());
+        assert!(
+            BattleStatusEffect::Debuff {
+                stat: StatKind::Atk,
+                modifier: -5,
+                duration: 3,
+            }
+            .is_negative()
+        );
+    }
+
+    #[test]
+    fn is_negative_returns_false_for_beneficial_statuses() {
+        assert!(
+            !BattleStatusEffect::HealOverTime {
+                heal_per_turn: 10,
+                duration: 3,
+            }
+            .is_negative()
+        );
+        assert!(
+            !BattleStatusEffect::Buff {
+                stat: StatKind::Atk,
+                modifier: 5,
+                duration: 3,
+            }
+            .is_negative()
+        );
+        assert!(
+            !BattleStatusEffect::Shield {
+                remaining_charges: 2,
+                duration: 3,
+            }
+            .is_negative()
+        );
+        assert!(!BattleStatusEffect::Invulnerable { duration: 1 }.is_negative());
+        assert!(
+            !BattleStatusEffect::AutoRevive {
+                hp_percent: 0.5,
+                uses_remaining: 1,
+            }
+            .is_negative()
+        );
+    }
+
+    // -- BattleUnit::hp_percent --
+
+    #[test]
+    fn hp_percent_full() {
+        let unit = make_unit(100, 100, 50, 50);
+        assert!((unit.hp_percent() - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn hp_percent_half() {
+        let unit = make_unit(50, 100, 50, 50);
+        assert!((unit.hp_percent() - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn hp_percent_zero() {
+        let unit = make_unit(0, 100, 50, 50);
+        assert!((unit.hp_percent() - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn hp_percent_zero_max_hp() {
+        let unit = make_unit(0, 0, 50, 50);
+        assert!((unit.hp_percent() - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn hp_percent_clamped_to_one() {
+        // If somehow hp > max_hp (overheal edge case), clamp to 1.0
+        let unit = make_unit(120, 100, 50, 50);
+        assert!((unit.hp_percent() - 1.0).abs() < f32::EPSILON);
+    }
+
+    // -- BattleUnit::pp_percent --
+
+    #[test]
+    fn pp_percent_full() {
+        let unit = make_unit(100, 100, 50, 50);
+        assert!((unit.pp_percent() - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn pp_percent_half() {
+        let unit = make_unit(100, 100, 25, 50);
+        assert!((unit.pp_percent() - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn pp_percent_zero() {
+        let unit = make_unit(100, 100, 0, 50);
+        assert!((unit.pp_percent() - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn pp_percent_zero_max_pp() {
+        let unit = make_unit(100, 100, 0, 0);
+        assert!((unit.pp_percent() - 0.0).abs() < f32::EPSILON);
+    }
+
+    // -- BattleUnit::status_summary --
+
+    #[test]
+    fn status_summary_empty() {
+        let unit = make_unit(100, 100, 50, 50);
+        assert_eq!(unit.status_summary(), "");
+    }
+
+    #[test]
+    fn status_summary_single() {
+        let mut unit = make_unit(100, 100, 50, 50);
+        unit.status_effects
+            .push(BattleStatusEffect::Poison { duration: 3 });
+        assert_eq!(unit.status_summary(), "Poison");
+    }
+
+    #[test]
+    fn status_summary_multiple() {
+        let mut unit = make_unit(100, 100, 50, 50);
+        unit.status_effects
+            .push(BattleStatusEffect::Poison { duration: 3 });
+        unit.status_effects
+            .push(BattleStatusEffect::Burn { duration: 2 });
+        assert_eq!(unit.status_summary(), "Poison, Burn");
+    }
+
+    #[test]
+    fn status_summary_with_buff_and_debuff() {
+        let mut unit = make_unit(100, 100, 50, 50);
+        unit.status_effects.push(BattleStatusEffect::Buff {
+            stat: StatKind::Atk,
+            modifier: 5,
+            duration: 3,
+        });
+        unit.status_effects.push(BattleStatusEffect::Debuff {
+            stat: StatKind::Def,
+            modifier: -3,
+            duration: 2,
+        });
+        assert_eq!(unit.status_summary(), "ATK Up, DEF Down");
+    }
+
+    // -- BattleUnit::is_debuffed --
+
+    #[test]
+    fn is_debuffed_false_when_no_effects() {
+        let unit = make_unit(100, 100, 50, 50);
+        assert!(!unit.is_debuffed());
+    }
+
+    #[test]
+    fn is_debuffed_false_when_only_buffs() {
+        let mut unit = make_unit(100, 100, 50, 50);
+        unit.status_effects.push(BattleStatusEffect::Buff {
+            stat: StatKind::Atk,
+            modifier: 5,
+            duration: 3,
+        });
+        assert!(!unit.is_debuffed());
+    }
+
+    #[test]
+    fn is_debuffed_true_when_debuff_present() {
+        let mut unit = make_unit(100, 100, 50, 50);
+        unit.status_effects.push(BattleStatusEffect::Debuff {
+            stat: StatKind::Def,
+            modifier: -3,
+            duration: 2,
+        });
+        assert!(unit.is_debuffed());
+    }
+
+    #[test]
+    fn is_debuffed_false_for_other_negative_statuses() {
+        let mut unit = make_unit(100, 100, 50, 50);
+        unit.status_effects
+            .push(BattleStatusEffect::Poison { duration: 3 });
+        // Poison is negative but not a Debuff variant
+        assert!(!unit.is_debuffed());
+    }
+
+    // -- BattleUnit::is_buffed --
+
+    #[test]
+    fn is_buffed_false_when_no_effects() {
+        let unit = make_unit(100, 100, 50, 50);
+        assert!(!unit.is_buffed());
+    }
+
+    #[test]
+    fn is_buffed_false_when_only_debuffs() {
+        let mut unit = make_unit(100, 100, 50, 50);
+        unit.status_effects.push(BattleStatusEffect::Debuff {
+            stat: StatKind::Def,
+            modifier: -3,
+            duration: 2,
+        });
+        assert!(!unit.is_buffed());
+    }
+
+    #[test]
+    fn is_buffed_true_when_buff_present() {
+        let mut unit = make_unit(100, 100, 50, 50);
+        unit.status_effects.push(BattleStatusEffect::Buff {
+            stat: StatKind::Atk,
+            modifier: 5,
+            duration: 3,
+        });
+        assert!(unit.is_buffed());
+    }
+
+    #[test]
+    fn is_buffed_false_for_shield() {
+        let mut unit = make_unit(100, 100, 50, 50);
+        unit.status_effects.push(BattleStatusEffect::Shield {
+            remaining_charges: 2,
+            duration: 3,
+        });
+        // Shield is positive but not a Buff variant
+        assert!(!unit.is_buffed());
+    }
 }
