@@ -242,6 +242,7 @@ pub fn despawn_party_battle_units(
 // Battle enter / exit
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub fn battle_enter_system(
     mut commands: Commands,
     mut start_events: EventReader<StartBattleEvent>,
@@ -249,6 +250,8 @@ pub fn battle_enter_system(
     mut cmd_state: ResMut<CommandSelectState>,
     mut rng: ResMut<BattleRng>,
     party_query: Query<&BattleUnit>,
+    game_data: Res<GameData>,
+    mut bestiary: Option<ResMut<crate::plugins::core_plugin::Bestiary>>,
 ) {
     for event in start_events.read() {
         *battle_state = BattleStateRes {
@@ -259,6 +262,20 @@ pub fn battle_enter_system(
 
         for enemy in &event.enemy_units {
             commands.spawn(enemy.clone());
+        }
+
+        // Record enemy encounters in the bestiary
+        if let Some(ref mut bestiary) = bestiary {
+            for enemy in &event.enemy_units {
+                // Reverse-lookup the enemy registry ID by matching on name
+                if let Some((enemy_id, _)) = game_data
+                    .enemies
+                    .iter()
+                    .find(|(_, def)| def.name == enemy.name)
+                {
+                    bestiary.record_encounter(enemy_id, &enemy.name);
+                }
+            }
         }
 
         let all_units: Vec<BattleUnit> = party_query
@@ -1378,7 +1395,22 @@ pub fn victory_system(
     game_data: Res<GameData>,
     mut battle_rng: ResMut<BattleRng>,
     mut party: ResMut<Party>,
+    mut bestiary: Option<ResMut<crate::plugins::core_plugin::Bestiary>>,
 ) {
+    // Record defeats for all enemies in the bestiary
+    if let Some(ref mut bestiary) = bestiary {
+        for unit in units.iter() {
+            if unit.side == UnitSide::Enemy
+                && let Some((enemy_id, _)) = game_data
+                    .enemies
+                    .iter()
+                    .find(|(_, def)| def.name == unit.name)
+            {
+                bestiary.record_defeat(enemy_id);
+            }
+        }
+    }
+
     let enemy_xp_gold: Vec<(u32, u32)> = units
         .iter()
         .filter(|u| u.side == UnitSide::Enemy)

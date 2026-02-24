@@ -14,6 +14,7 @@ use plugins::inventory::InventoryPlugin;
 use plugins::overworld::OverworldPlugin;
 use plugins::save::SavePlugin;
 use plugins::shop::ShopPlugin;
+use plugins::sprites::SpritePlugin;
 use plugins::tower::TowerPlugin;
 use plugins::ui::UiPlugin;
 
@@ -39,6 +40,7 @@ fn main() {
         .add_plugins(CoreGamePlugin)
         .add_plugins(SavePlugin)
         .add_plugins(GameAudioPlugin)
+        .add_plugins(SpritePlugin)
         // UI & gameplay
         .add_plugins(UiPlugin)
         .add_plugins(OverworldPlugin)

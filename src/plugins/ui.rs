@@ -5,6 +5,7 @@
 //! builds the MainMenu UI, Pause overlay, and Settings screen.
 
 use bevy::prelude::*;
+use bevy::window::{PrimaryWindow, WindowMode, WindowResolution};
 
 use super::audio::AudioSettings;
 use super::core_plugin::{GameState, Party};
@@ -110,6 +111,16 @@ impl Default for MainMenuFeedback {
     }
 }
 
+/// Available resolution presets for the display settings.
+const RESOLUTIONS: &[(f32, f32)] = &[(960.0, 540.0), (1280.0, 720.0), (1920.0, 1080.0)];
+
+/// Display settings resource tracking fullscreen and resolution state.
+#[derive(Resource, Debug, Default)]
+struct DisplaySettings {
+    fullscreen: bool,
+    resolution_index: usize,
+}
+
 /// Screen transition state for fade effects.
 #[derive(Resource, Debug)]
 pub struct ScreenTransition {
@@ -150,6 +161,7 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ScreenTransition>()
+            .init_resource::<DisplaySettings>()
             // Persistent systems
             .add_systems(Startup, spawn_fade_overlay)
             .add_systems(Update, screen_transition_system)
@@ -771,7 +783,13 @@ fn clear_pause_menu_feedback(mut commands: Commands) {
 // SETTINGS
 // ══════════════════════════════════════════════════════════════════════
 
-const SETTINGS_ITEMS: &[&str] = &["Music Volume", "SFX Volume", "Fullscreen", "Back"];
+const SETTINGS_ITEMS: &[&str] = &[
+    "Music Volume",
+    "SFX Volume",
+    "Fullscreen",
+    "Resolution",
+    "Back",
+];
 
 /// Local settings mirror (so we can read/write AudioSettings).
 #[derive(Resource, Debug)]
@@ -779,6 +797,7 @@ struct SettingsUiState {
     music_volume: f32,
     sfx_volume: f32,
     fullscreen: bool,
+    resolution_index: usize,
     /// Where we came from so we can go back.
     return_to: GameState,
 }
@@ -787,6 +806,7 @@ fn setup_settings(
     mut commands: Commands,
     audio: Res<AudioSettings>,
     _state: Res<State<GameState>>,
+    display: Res<DisplaySettings>,
 ) {
     commands.insert_resource(MenuCursor::new(SETTINGS_ITEMS.len()));
 
@@ -797,7 +817,8 @@ fn setup_settings(
     let ui_state = SettingsUiState {
         music_volume: audio.music_volume,
         sfx_volume: audio.sfx_volume,
-        fullscreen: false,
+        fullscreen: display.fullscreen,
+        resolution_index: display.resolution_index,
         return_to,
     };
 
@@ -857,6 +878,10 @@ fn setup_settings(
                             0 => format!("{:.0}%", ui_state.music_volume * 100.0),
                             1 => format!("{:.0}%", ui_state.sfx_volume * 100.0),
                             2 => (if ui_state.fullscreen { "ON" } else { "OFF" }).into(),
+                            3 => {
+                                let (w, h) = RESOLUTIONS[ui_state.resolution_index];
+                                format!("{:.0}x{:.0}", w, h)
+                            }
                             _ => String::new(),
                         };
 
@@ -897,6 +922,8 @@ fn settings_input(
     mut transition: ResMut<ScreenTransition>,
     mut audio: ResMut<AudioSettings>,
     mut ui_state: ResMut<SettingsUiState>,
+    mut display: ResMut<DisplaySettings>,
+    mut windows: Query<&mut Window, With<PrimaryWindow>>,
     items: Query<(&SettingsItem, &Children)>,
     mut text_query: Query<&mut TextColor>,
     mut value_texts: Query<(&SettingsValueText, &mut Text)>,
@@ -933,15 +960,18 @@ fn settings_input(
     }
 
     // Left/Right adjusts
-    let adjust = if keys.just_pressed(KeyCode::ArrowLeft) || keys.just_pressed(KeyCode::KeyA) {
+    let left_pressed = keys.just_pressed(KeyCode::ArrowLeft) || keys.just_pressed(KeyCode::KeyA);
+    let right_pressed = keys.just_pressed(KeyCode::ArrowRight) || keys.just_pressed(KeyCode::KeyD);
+
+    let adjust = if left_pressed {
         -0.1_f32
-    } else if keys.just_pressed(KeyCode::ArrowRight) || keys.just_pressed(KeyCode::KeyD) {
+    } else if right_pressed {
         0.1
     } else {
         0.0
     };
 
-    if adjust != 0.0 {
+    if adjust != 0.0 || left_pressed || right_pressed {
         match cursor.selected {
             0 => {
                 ui_state.music_volume = (ui_state.music_volume + adjust).clamp(0.0, 1.0);
@@ -952,7 +982,35 @@ fn settings_input(
                 audio.sfx_volume = ui_state.sfx_volume;
             }
             2 => {
-                ui_state.fullscreen = !ui_state.fullscreen;
+                // Fullscreen toggle
+                if left_pressed || right_pressed {
+                    ui_state.fullscreen = !ui_state.fullscreen;
+                    display.fullscreen = ui_state.fullscreen;
+                    if let Ok(mut window) = windows.get_single_mut() {
+                        window.mode = if ui_state.fullscreen {
+                            WindowMode::Fullscreen(MonitorSelection::Current)
+                        } else {
+                            WindowMode::Windowed
+                        };
+                    }
+                }
+            }
+            3 => {
+                // Resolution cycle
+                if right_pressed {
+                    ui_state.resolution_index = (ui_state.resolution_index + 1) % RESOLUTIONS.len();
+                } else if left_pressed {
+                    ui_state.resolution_index = if ui_state.resolution_index == 0 {
+                        RESOLUTIONS.len() - 1
+                    } else {
+                        ui_state.resolution_index - 1
+                    };
+                }
+                display.resolution_index = ui_state.resolution_index;
+                let (w, h) = RESOLUTIONS[ui_state.resolution_index];
+                if let Ok(mut window) = windows.get_single_mut() {
+                    window.resolution = WindowResolution::new(w, h);
+                }
             }
             _ => {}
         }
@@ -964,6 +1022,10 @@ fn settings_input(
             0 => format!("{:.0}%", ui_state.music_volume * 100.0),
             1 => format!("{:.0}%", ui_state.sfx_volume * 100.0),
             2 => (if ui_state.fullscreen { "ON" } else { "OFF" }).into(),
+            3 => {
+                let (w, h) = RESOLUTIONS[ui_state.resolution_index];
+                format!("{:.0}x{:.0}", w, h)
+            }
             _ => String::new(),
         };
         **text = s;

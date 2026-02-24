@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use crate::battle::types::{BattleUnit, UnitSide};
 use crate::components::world::{GridPosition, Player};
-use crate::plugins::core_plugin::{GameData, GameState, Party};
+use crate::plugins::core_plugin::{Bestiary, GameData, GameState, Party};
 
 // ---------------------------------------------------------------------------
 // Save file structure
@@ -44,6 +44,8 @@ pub struct SaveData {
     pub gold: u32,
     /// Play time in seconds.
     pub play_time_secs: f64,
+    /// Monster compendium / bestiary state.
+    pub bestiary: Bestiary,
 }
 
 impl Default for SaveData {
@@ -60,6 +62,7 @@ impl Default for SaveData {
             tower_floor: 0,
             gold: Party::default().gold,
             play_time_secs: 0.0,
+            bestiary: Bestiary::default(),
         }
     }
 }
@@ -68,6 +71,10 @@ impl SaveData {
     /// Build save data from the current Bevy world/resources.
     pub fn from_game_state(world: &mut World) -> Self {
         let party = world.get_resource::<Party>().cloned().unwrap_or_default();
+        let bestiary = world
+            .get_resource::<Bestiary>()
+            .cloned()
+            .unwrap_or_default();
         let gold = party.gold;
 
         let current_map = world
@@ -199,6 +206,7 @@ impl SaveData {
             tower_floor: 0,
             gold,
             play_time_secs,
+            bestiary,
         }
     }
 
@@ -222,6 +230,13 @@ impl SaveData {
             *party = restored_party;
         } else {
             world.insert_resource(restored_party);
+        }
+
+        // Restore bestiary
+        if let Some(mut bestiary) = world.get_resource_mut::<Bestiary>() {
+            *bestiary = self.bestiary.clone();
+        } else {
+            world.insert_resource(self.bestiary.clone());
         }
 
         let player_entities = {
