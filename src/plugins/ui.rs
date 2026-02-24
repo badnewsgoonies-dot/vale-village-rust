@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowMode, WindowResolution};
 
 use super::audio::AudioSettings;
-use super::core_plugin::{GameState, Party};
+use super::core_plugin::{Difficulty, DifficultySettings, GameState, Party};
 use super::save::{SaveData, SaveSystem};
 
 // ── Color palette (Golden Sun aesthetic) ──────────────────────────────
@@ -51,6 +51,14 @@ struct SaveSlotMenuRoot;
 
 #[derive(Component)]
 struct SaveSlotItem {
+    index: usize,
+}
+
+#[derive(Component)]
+struct DifficultySelectRoot;
+
+#[derive(Component)]
+struct DifficultySelectItem {
     index: usize,
 }
 
@@ -115,6 +123,24 @@ impl Default for MainMenuFeedback {
         Self {
             message: None,
             timer: Timer::from_seconds(1.5, TimerMode::Once),
+        }
+    }
+}
+
+/// Tracks whether the difficulty selection sub-menu is active on the main menu.
+#[derive(Resource, Debug)]
+struct DifficultySelectState {
+    active: bool,
+    cursor: usize,
+    cooldown: Timer,
+}
+
+impl DifficultySelectState {
+    fn new() -> Self {
+        Self {
+            active: true,
+            cursor: 1, // Default to Normal (index 1)
+            cooldown: Timer::from_seconds(0.15, TimerMode::Once),
         }
     }
 }
@@ -210,7 +236,12 @@ impl Plugin for UiPlugin {
             )
             .add_systems(
                 OnExit(GameState::MainMenu),
-                (cleanup::<MainMenuRoot>, clear_main_menu_feedback),
+                (
+                    cleanup::<MainMenuRoot>,
+                    cleanup::<DifficultySelectRoot>,
+                    clear_main_menu_feedback,
+                    clear_difficulty_select_state,
+                ),
             )
             // Pause Menu
             .add_systems(OnEnter(GameState::Paused), setup_pause_menu)
@@ -437,6 +468,15 @@ fn main_menu_input(world: &mut World) {
         return;
     }
 
+    // If the difficulty selection sub-menu is open, delegate to its handler.
+    let difficulty_active = world
+        .get_resource::<DifficultySelectState>()
+        .is_some_and(|s| s.active);
+    if difficulty_active {
+        difficulty_select_input(world);
+        return;
+    }
+
     let delta = world.resource::<Time>().delta();
     let (up_pressed, down_pressed, confirm_pressed) = {
         let keys = world.resource::<ButtonInput<KeyCode>>();
@@ -505,10 +545,8 @@ fn main_menu_input(world: &mut World) {
 
     match selected {
         0 => {
-            // New Game: reset party to default for a fresh start
-            world.insert_resource(Party::default());
-            let mut transition = world.resource_mut::<ScreenTransition>();
-            start_transition(&mut transition, GameState::Overworld);
+            // New Game: open difficulty selection sub-menu
+            open_difficulty_select(world);
         }
         1 => {
             // Continue: attempt to load save slot 1
@@ -551,6 +589,196 @@ fn set_main_menu_feedback(world: &mut World, message: impl Into<String>) {
             timer: Timer::from_seconds(1.5, TimerMode::Once),
         });
     }
+}
+
+// ── Difficulty Selection Sub-Menu ─────────────────────────────────────
+
+const DIFFICULTY_OPTIONS: &[&str] = &[
+    "Easy \u{2014} Reduced enemy stats, more rewards",
+    "Normal \u{2014} Standard experience (Recommended)",
+    "Hard \u{2014} Stronger enemies, scarce resources, greater XP",
+];
+
+const DIFFICULTY_COUNT: usize = 3;
+
+/// Spawn the difficulty selection overlay UI and insert the tracking resource.
+fn open_difficulty_select(world: &mut World) {
+    world.insert_resource(DifficultySelectState::new());
+
+    let mut root_entity = world.spawn((
+        DifficultySelectRoot,
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.4)),
+        GlobalZIndex(60),
+    ));
+
+    root_entity.with_children(|parent| {
+        parent
+            .spawn((
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    padding: UiRect::all(Val::Px(24.0)),
+                    border: UiRect::all(Val::Px(2.0)),
+                    min_width: Val::Px(460.0),
+                    ..default()
+                },
+                BackgroundColor(MENU_BG),
+                BorderColor(GOLD),
+            ))
+            .with_children(|menu| {
+                // Title
+                menu.spawn((
+                    Text::new("SELECT DIFFICULTY"),
+                    TextFont {
+                        font_size: 28.0,
+                        ..default()
+                    },
+                    TextColor(BRIGHT_GOLD),
+                    Node {
+                        margin: UiRect::bottom(Val::Px(16.0)),
+                        ..default()
+                    },
+                ));
+
+                // Difficulty options
+                for (i, label) in DIFFICULTY_OPTIONS.iter().enumerate() {
+                    let is_sel = i == 1; // Normal is default selected
+                    menu.spawn((
+                        DifficultySelectItem { index: i },
+                        Text::new(label.to_string()),
+                        TextFont {
+                            font_size: 22.0,
+                            ..default()
+                        },
+                        TextColor(if is_sel { BRIGHT_GOLD } else { DIM_TEXT }),
+                        Node {
+                            margin: UiRect::vertical(Val::Px(6.0)),
+                            ..default()
+                        },
+                    ));
+                }
+
+                // Hint
+                menu.spawn((
+                    Text::new("Enter: Select  |  Esc: Back"),
+                    TextFont {
+                        font_size: 14.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgba(0.5, 0.5, 0.5, 0.7)),
+                    Node {
+                        margin: UiRect::top(Val::Px(14.0)),
+                        ..default()
+                    },
+                ));
+            });
+    });
+}
+
+/// Despawn the difficulty selection sub-menu UI and remove the tracking resource.
+fn close_difficulty_select(world: &mut World) {
+    let roots: Vec<Entity> = {
+        let mut query = world.query_filtered::<Entity, With<DifficultySelectRoot>>();
+        query.iter(world).collect()
+    };
+    for entity in roots {
+        world.entity_mut(entity).despawn();
+    }
+    world.remove_resource::<DifficultySelectState>();
+}
+
+/// Exclusive-system handler for the difficulty selection sub-menu input.
+fn difficulty_select_input(world: &mut World) {
+    let delta = world.resource::<Time>().delta();
+    let (up_pressed, down_pressed, escape_pressed, confirm_pressed) = {
+        let keys = world.resource::<ButtonInput<KeyCode>>();
+        (
+            keys.just_pressed(KeyCode::ArrowUp) || keys.just_pressed(KeyCode::KeyW),
+            keys.just_pressed(KeyCode::ArrowDown) || keys.just_pressed(KeyCode::KeyS),
+            keys.just_pressed(KeyCode::Escape),
+            keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space),
+        )
+    };
+
+    // Navigate cursor
+    {
+        let mut state = world.resource_mut::<DifficultySelectState>();
+        state.cooldown.tick(delta);
+
+        if state.cooldown.finished() {
+            if up_pressed {
+                state.cursor = if state.cursor == 0 {
+                    DIFFICULTY_COUNT - 1
+                } else {
+                    state.cursor - 1
+                };
+                state.cooldown.reset();
+            }
+            if down_pressed {
+                state.cursor = (state.cursor + 1) % DIFFICULTY_COUNT;
+                state.cooldown.reset();
+            }
+        }
+    }
+
+    let cursor_pos = world.resource::<DifficultySelectState>().cursor;
+
+    // Highlight the selected option
+    {
+        let mut items = world.query::<(&DifficultySelectItem, &mut TextColor)>();
+        for (item, mut color) in items.iter_mut(world) {
+            color.0 = if item.index == cursor_pos {
+                BRIGHT_GOLD
+            } else {
+                DIM_TEXT
+            };
+        }
+    }
+
+    // Escape: close sub-menu, return to main menu
+    if escape_pressed {
+        close_difficulty_select(world);
+        return;
+    }
+
+    if !confirm_pressed {
+        return;
+    }
+
+    // Map cursor position to difficulty
+    let difficulty = match cursor_pos {
+        0 => Difficulty::Easy,
+        1 => Difficulty::Normal,
+        2 => Difficulty::Hard,
+        _ => Difficulty::Normal,
+    };
+
+    // Set the difficulty resource
+    world.insert_resource(DifficultySettings { difficulty });
+
+    // Reset party to default for a fresh start and set its difficulty field
+    let party = Party {
+        difficulty,
+        ..Party::default()
+    };
+    world.insert_resource(party);
+
+    // Close the sub-menu and start the game
+    close_difficulty_select(world);
+    let mut transition = world.resource_mut::<ScreenTransition>();
+    start_transition(&mut transition, GameState::Overworld);
+}
+
+fn clear_difficulty_select_state(mut commands: Commands) {
+    commands.remove_resource::<DifficultySelectState>();
 }
 
 fn main_menu_feedback_update(

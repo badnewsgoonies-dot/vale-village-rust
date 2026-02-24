@@ -250,6 +250,144 @@ pub mod story {
 }
 
 // ---------------------------------------------------------------------------
+// Achievement constants
+// ---------------------------------------------------------------------------
+
+#[allow(dead_code)]
+pub mod achievements {
+    pub const FIRST_BLOOD: &str = "first_blood";
+    pub const FULL_PARTY: &str = "full_party";
+    pub const TOWER_ENTERED: &str = "tower_entered";
+    pub const TOWER_COMPLETED: &str = "tower_completed";
+    pub const BESTIARY_25: &str = "bestiary_25";
+    pub const BESTIARY_50: &str = "bestiary_50";
+    pub const GOLD_1000: &str = "gold_1000";
+    pub const HARD_MODE: &str = "hard_mode";
+    pub const NO_KO: &str = "no_ko";
+    pub const LEVEL_10: &str = "level_10";
+}
+
+// ---------------------------------------------------------------------------
+// Achievement entry -- a single achievement definition + unlock state
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AchievementEntry {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub unlocked: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Achievements resource -- tracks all milestones
+// ---------------------------------------------------------------------------
+
+#[derive(Resource, Default, Clone, Debug, Serialize, Deserialize)]
+pub struct Achievements {
+    pub unlocked: HashMap<String, AchievementEntry>,
+}
+
+#[allow(dead_code)]
+impl Achievements {
+    /// Creates an `Achievements` resource with all achievements registered
+    /// in their locked (not yet unlocked) state.
+    pub fn build_default() -> Self {
+        let definitions: Vec<(&str, &str, &str)> = vec![
+            (
+                achievements::FIRST_BLOOD,
+                "First Blood",
+                "Win your first battle",
+            ),
+            (
+                achievements::FULL_PARTY,
+                "Band of Heroes",
+                "Recruit all party members",
+            ),
+            (
+                achievements::TOWER_ENTERED,
+                "Into the Depths",
+                "Enter the Tower of Trials",
+            ),
+            (
+                achievements::TOWER_COMPLETED,
+                "Tower Conqueror",
+                "Complete all 10 floors",
+            ),
+            (
+                achievements::BESTIARY_25,
+                "Monster Scholar",
+                "Discover 25 enemy types",
+            ),
+            (
+                achievements::BESTIARY_50,
+                "Monster Master",
+                "Discover all 50 enemy types",
+            ),
+            (
+                achievements::GOLD_1000,
+                "Wealthy Adept",
+                "Accumulate 1000 gold",
+            ),
+            (
+                achievements::HARD_MODE,
+                "Hardcore",
+                "Win a battle on Hard difficulty",
+            ),
+            (
+                achievements::NO_KO,
+                "Flawless Victory",
+                "Win a battle with no party members KO'd",
+            ),
+            (
+                achievements::LEVEL_10,
+                "Seasoned Warrior",
+                "Reach level 10 with any unit",
+            ),
+        ];
+
+        let mut unlocked = HashMap::new();
+        for (id, name, description) in definitions {
+            unlocked.insert(
+                id.to_string(),
+                AchievementEntry {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    description: description.to_string(),
+                    unlocked: false,
+                },
+            );
+        }
+
+        Self { unlocked }
+    }
+
+    /// Marks the achievement with the given `id` as unlocked. If the
+    /// achievement does not exist in the registry, this is a no-op.
+    pub fn unlock(&mut self, id: &str) {
+        if let Some(entry) = self.unlocked.get_mut(id) {
+            entry.unlocked = true;
+        }
+    }
+
+    /// Returns `true` if the achievement with the given `id` exists and has
+    /// been unlocked.
+    pub fn is_unlocked(&self, id: &str) -> bool {
+        self.unlocked
+            .get(id)
+            .map(|entry| entry.unlocked)
+            .unwrap_or(false)
+    }
+
+    /// Returns `(unlocked_count, total_count)` for progress display.
+    pub fn completion_count(&self) -> (usize, usize) {
+        let total = self.unlocked.len();
+        let done = self.unlocked.values().filter(|e| e.unlocked).count();
+        (done, total)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Core game plugin
 // ---------------------------------------------------------------------------
 
@@ -274,6 +412,7 @@ impl Plugin for CoreGamePlugin {
         app.insert_resource(Party::default());
         app.insert_resource(DifficultySettings::default());
         app.insert_resource(Bestiary::default());
+        app.insert_resource(Achievements::build_default());
 
         // Register component types for reflection
         app.register_type::<crate::components::stats::UnitStats>();
@@ -885,5 +1024,498 @@ mod tests {
         // Still only 1 unique enemy discovered out of 10
         let percent = bestiary.completion_percent(10);
         assert!((percent - 10.0).abs() < f32::EPSILON);
+    }
+
+    // -----------------------------------------------------------------------
+    // Achievement constants tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_achievement_constants_are_unique() {
+        let ids = [
+            achievements::FIRST_BLOOD,
+            achievements::FULL_PARTY,
+            achievements::TOWER_ENTERED,
+            achievements::TOWER_COMPLETED,
+            achievements::BESTIARY_25,
+            achievements::BESTIARY_50,
+            achievements::GOLD_1000,
+            achievements::HARD_MODE,
+            achievements::NO_KO,
+            achievements::LEVEL_10,
+        ];
+        let unique: std::collections::HashSet<&str> = ids.iter().copied().collect();
+        assert_eq!(
+            ids.len(),
+            unique.len(),
+            "Achievement constants must be unique"
+        );
+    }
+
+    #[test]
+    fn test_achievement_constants_count() {
+        // There should be exactly 10 achievement constants
+        let ids = [
+            achievements::FIRST_BLOOD,
+            achievements::FULL_PARTY,
+            achievements::TOWER_ENTERED,
+            achievements::TOWER_COMPLETED,
+            achievements::BESTIARY_25,
+            achievements::BESTIARY_50,
+            achievements::GOLD_1000,
+            achievements::HARD_MODE,
+            achievements::NO_KO,
+            achievements::LEVEL_10,
+        ];
+        assert_eq!(ids.len(), 10);
+    }
+
+    // -----------------------------------------------------------------------
+    // Achievements::build_default tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_build_default_has_10_achievements() {
+        let ach = Achievements::build_default();
+        assert_eq!(ach.unlocked.len(), 10);
+    }
+
+    #[test]
+    fn test_build_default_all_locked() {
+        let ach = Achievements::build_default();
+        for entry in ach.unlocked.values() {
+            assert!(
+                !entry.unlocked,
+                "Achievement '{}' should start locked",
+                entry.id
+            );
+        }
+    }
+
+    #[test]
+    fn test_build_default_contains_all_constants() {
+        let ach = Achievements::build_default();
+        let expected = [
+            achievements::FIRST_BLOOD,
+            achievements::FULL_PARTY,
+            achievements::TOWER_ENTERED,
+            achievements::TOWER_COMPLETED,
+            achievements::BESTIARY_25,
+            achievements::BESTIARY_50,
+            achievements::GOLD_1000,
+            achievements::HARD_MODE,
+            achievements::NO_KO,
+            achievements::LEVEL_10,
+        ];
+        for id in expected {
+            assert!(
+                ach.unlocked.contains_key(id),
+                "build_default() should contain achievement '{}'",
+                id
+            );
+        }
+    }
+
+    #[test]
+    fn test_build_default_first_blood_metadata() {
+        let ach = Achievements::build_default();
+        let entry = &ach.unlocked[achievements::FIRST_BLOOD];
+        assert_eq!(entry.id, "first_blood");
+        assert_eq!(entry.name, "First Blood");
+        assert_eq!(entry.description, "Win your first battle");
+        assert!(!entry.unlocked);
+    }
+
+    #[test]
+    fn test_build_default_full_party_metadata() {
+        let ach = Achievements::build_default();
+        let entry = &ach.unlocked[achievements::FULL_PARTY];
+        assert_eq!(entry.id, "full_party");
+        assert_eq!(entry.name, "Band of Heroes");
+        assert_eq!(entry.description, "Recruit all party members");
+    }
+
+    #[test]
+    fn test_build_default_tower_entered_metadata() {
+        let ach = Achievements::build_default();
+        let entry = &ach.unlocked[achievements::TOWER_ENTERED];
+        assert_eq!(entry.id, "tower_entered");
+        assert_eq!(entry.name, "Into the Depths");
+        assert_eq!(entry.description, "Enter the Tower of Trials");
+    }
+
+    #[test]
+    fn test_build_default_tower_completed_metadata() {
+        let ach = Achievements::build_default();
+        let entry = &ach.unlocked[achievements::TOWER_COMPLETED];
+        assert_eq!(entry.id, "tower_completed");
+        assert_eq!(entry.name, "Tower Conqueror");
+        assert_eq!(entry.description, "Complete all 10 floors");
+    }
+
+    #[test]
+    fn test_build_default_bestiary_25_metadata() {
+        let ach = Achievements::build_default();
+        let entry = &ach.unlocked[achievements::BESTIARY_25];
+        assert_eq!(entry.id, "bestiary_25");
+        assert_eq!(entry.name, "Monster Scholar");
+        assert_eq!(entry.description, "Discover 25 enemy types");
+    }
+
+    #[test]
+    fn test_build_default_bestiary_50_metadata() {
+        let ach = Achievements::build_default();
+        let entry = &ach.unlocked[achievements::BESTIARY_50];
+        assert_eq!(entry.id, "bestiary_50");
+        assert_eq!(entry.name, "Monster Master");
+        assert_eq!(entry.description, "Discover all 50 enemy types");
+    }
+
+    #[test]
+    fn test_build_default_gold_1000_metadata() {
+        let ach = Achievements::build_default();
+        let entry = &ach.unlocked[achievements::GOLD_1000];
+        assert_eq!(entry.id, "gold_1000");
+        assert_eq!(entry.name, "Wealthy Adept");
+        assert_eq!(entry.description, "Accumulate 1000 gold");
+    }
+
+    #[test]
+    fn test_build_default_hard_mode_metadata() {
+        let ach = Achievements::build_default();
+        let entry = &ach.unlocked[achievements::HARD_MODE];
+        assert_eq!(entry.id, "hard_mode");
+        assert_eq!(entry.name, "Hardcore");
+        assert_eq!(entry.description, "Win a battle on Hard difficulty");
+    }
+
+    #[test]
+    fn test_build_default_no_ko_metadata() {
+        let ach = Achievements::build_default();
+        let entry = &ach.unlocked[achievements::NO_KO];
+        assert_eq!(entry.id, "no_ko");
+        assert_eq!(entry.name, "Flawless Victory");
+        assert_eq!(entry.description, "Win a battle with no party members KO'd");
+    }
+
+    #[test]
+    fn test_build_default_level_10_metadata() {
+        let ach = Achievements::build_default();
+        let entry = &ach.unlocked[achievements::LEVEL_10];
+        assert_eq!(entry.id, "level_10");
+        assert_eq!(entry.name, "Seasoned Warrior");
+        assert_eq!(entry.description, "Reach level 10 with any unit");
+    }
+
+    #[test]
+    fn test_build_default_entry_ids_match_keys() {
+        let ach = Achievements::build_default();
+        for (key, entry) in &ach.unlocked {
+            assert_eq!(
+                key, &entry.id,
+                "HashMap key '{}' must match entry id '{}'",
+                key, entry.id
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Achievements::unlock tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_unlock_sets_achievement_to_unlocked() {
+        let mut ach = Achievements::build_default();
+        assert!(!ach.unlocked[achievements::FIRST_BLOOD].unlocked);
+
+        ach.unlock(achievements::FIRST_BLOOD);
+        assert!(ach.unlocked[achievements::FIRST_BLOOD].unlocked);
+    }
+
+    #[test]
+    fn test_unlock_unknown_id_is_noop() {
+        let mut ach = Achievements::build_default();
+        let count_before = ach.unlocked.len();
+
+        ach.unlock("nonexistent_achievement");
+
+        assert_eq!(ach.unlocked.len(), count_before);
+    }
+
+    #[test]
+    fn test_unlock_idempotent() {
+        let mut ach = Achievements::build_default();
+        ach.unlock(achievements::HARD_MODE);
+        ach.unlock(achievements::HARD_MODE);
+        ach.unlock(achievements::HARD_MODE);
+
+        assert!(ach.unlocked[achievements::HARD_MODE].unlocked);
+        // No extra entries should be created
+        assert_eq!(ach.unlocked.len(), 10);
+    }
+
+    #[test]
+    fn test_unlock_multiple_achievements() {
+        let mut ach = Achievements::build_default();
+        ach.unlock(achievements::FIRST_BLOOD);
+        ach.unlock(achievements::NO_KO);
+        ach.unlock(achievements::LEVEL_10);
+
+        assert!(ach.unlocked[achievements::FIRST_BLOOD].unlocked);
+        assert!(ach.unlocked[achievements::NO_KO].unlocked);
+        assert!(ach.unlocked[achievements::LEVEL_10].unlocked);
+        // Others should remain locked
+        assert!(!ach.unlocked[achievements::FULL_PARTY].unlocked);
+        assert!(!ach.unlocked[achievements::TOWER_ENTERED].unlocked);
+    }
+
+    #[test]
+    fn test_unlock_does_not_change_metadata() {
+        let mut ach = Achievements::build_default();
+        ach.unlock(achievements::GOLD_1000);
+
+        let entry = &ach.unlocked[achievements::GOLD_1000];
+        assert_eq!(entry.id, "gold_1000");
+        assert_eq!(entry.name, "Wealthy Adept");
+        assert_eq!(entry.description, "Accumulate 1000 gold");
+        assert!(entry.unlocked);
+    }
+
+    // -----------------------------------------------------------------------
+    // Achievements::is_unlocked tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_is_unlocked_returns_false_for_locked() {
+        let ach = Achievements::build_default();
+        assert!(!ach.is_unlocked(achievements::FIRST_BLOOD));
+    }
+
+    #[test]
+    fn test_is_unlocked_returns_true_after_unlock() {
+        let mut ach = Achievements::build_default();
+        ach.unlock(achievements::TOWER_COMPLETED);
+        assert!(ach.is_unlocked(achievements::TOWER_COMPLETED));
+    }
+
+    #[test]
+    fn test_is_unlocked_returns_false_for_unknown_id() {
+        let ach = Achievements::build_default();
+        assert!(!ach.is_unlocked("totally_fake_achievement"));
+    }
+
+    #[test]
+    fn test_is_unlocked_does_not_affect_other_achievements() {
+        let mut ach = Achievements::build_default();
+        ach.unlock(achievements::BESTIARY_25);
+
+        assert!(ach.is_unlocked(achievements::BESTIARY_25));
+        assert!(!ach.is_unlocked(achievements::BESTIARY_50));
+    }
+
+    // -----------------------------------------------------------------------
+    // Achievements::completion_count tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_completion_count_all_locked() {
+        let ach = Achievements::build_default();
+        let (unlocked, total) = ach.completion_count();
+        assert_eq!(unlocked, 0);
+        assert_eq!(total, 10);
+    }
+
+    #[test]
+    fn test_completion_count_one_unlocked() {
+        let mut ach = Achievements::build_default();
+        ach.unlock(achievements::FIRST_BLOOD);
+
+        let (unlocked, total) = ach.completion_count();
+        assert_eq!(unlocked, 1);
+        assert_eq!(total, 10);
+    }
+
+    #[test]
+    fn test_completion_count_several_unlocked() {
+        let mut ach = Achievements::build_default();
+        ach.unlock(achievements::FIRST_BLOOD);
+        ach.unlock(achievements::FULL_PARTY);
+        ach.unlock(achievements::TOWER_ENTERED);
+        ach.unlock(achievements::GOLD_1000);
+
+        let (unlocked, total) = ach.completion_count();
+        assert_eq!(unlocked, 4);
+        assert_eq!(total, 10);
+    }
+
+    #[test]
+    fn test_completion_count_all_unlocked() {
+        let mut ach = Achievements::build_default();
+        let all_ids = [
+            achievements::FIRST_BLOOD,
+            achievements::FULL_PARTY,
+            achievements::TOWER_ENTERED,
+            achievements::TOWER_COMPLETED,
+            achievements::BESTIARY_25,
+            achievements::BESTIARY_50,
+            achievements::GOLD_1000,
+            achievements::HARD_MODE,
+            achievements::NO_KO,
+            achievements::LEVEL_10,
+        ];
+        for id in all_ids {
+            ach.unlock(id);
+        }
+
+        let (unlocked, total) = ach.completion_count();
+        assert_eq!(unlocked, 10);
+        assert_eq!(total, 10);
+    }
+
+    #[test]
+    fn test_completion_count_empty_achievements() {
+        let ach = Achievements::default();
+        let (unlocked, total) = ach.completion_count();
+        assert_eq!(unlocked, 0);
+        assert_eq!(total, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // Achievements Default trait tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_achievements_default_is_empty() {
+        let ach = Achievements::default();
+        assert!(ach.unlocked.is_empty());
+    }
+
+    #[test]
+    fn test_achievements_default_differs_from_build_default() {
+        let default_ach = Achievements::default();
+        let built_ach = Achievements::build_default();
+        assert_eq!(default_ach.unlocked.len(), 0);
+        assert_eq!(built_ach.unlocked.len(), 10);
+    }
+
+    // -----------------------------------------------------------------------
+    // Achievements clone tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_achievements_clone() {
+        let mut ach = Achievements::build_default();
+        ach.unlock(achievements::FIRST_BLOOD);
+        ach.unlock(achievements::NO_KO);
+
+        let cloned = ach.clone();
+        assert_eq!(cloned.unlocked.len(), 10);
+        assert!(cloned.is_unlocked(achievements::FIRST_BLOOD));
+        assert!(cloned.is_unlocked(achievements::NO_KO));
+        assert!(!cloned.is_unlocked(achievements::HARD_MODE));
+    }
+
+    #[test]
+    fn test_achievements_clone_independence() {
+        let mut ach = Achievements::build_default();
+        let mut cloned = ach.clone();
+
+        ach.unlock(achievements::FIRST_BLOOD);
+        cloned.unlock(achievements::LEVEL_10);
+
+        // Mutations should not affect each other
+        assert!(ach.is_unlocked(achievements::FIRST_BLOOD));
+        assert!(!ach.is_unlocked(achievements::LEVEL_10));
+        assert!(!cloned.is_unlocked(achievements::FIRST_BLOOD));
+        assert!(cloned.is_unlocked(achievements::LEVEL_10));
+    }
+
+    // -----------------------------------------------------------------------
+    // Achievements serialize/deserialize tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_achievements_serialize_deserialize() {
+        let mut ach = Achievements::build_default();
+        ach.unlock(achievements::FIRST_BLOOD);
+        ach.unlock(achievements::TOWER_ENTERED);
+
+        let serialized = ron::to_string(&ach).expect("serialize failed");
+        let deserialized: Achievements = ron::from_str(&serialized).expect("deserialize failed");
+
+        assert_eq!(deserialized.unlocked.len(), 10);
+        assert!(deserialized.is_unlocked(achievements::FIRST_BLOOD));
+        assert!(deserialized.is_unlocked(achievements::TOWER_ENTERED));
+        assert!(!deserialized.is_unlocked(achievements::FULL_PARTY));
+    }
+
+    #[test]
+    fn test_achievements_serialize_preserves_metadata() {
+        let mut ach = Achievements::build_default();
+        ach.unlock(achievements::GOLD_1000);
+
+        let serialized = ron::to_string(&ach).expect("serialize failed");
+        let deserialized: Achievements = ron::from_str(&serialized).expect("deserialize failed");
+
+        let entry = &deserialized.unlocked[achievements::GOLD_1000];
+        assert_eq!(entry.id, "gold_1000");
+        assert_eq!(entry.name, "Wealthy Adept");
+        assert_eq!(entry.description, "Accumulate 1000 gold");
+        assert!(entry.unlocked);
+    }
+
+    // -----------------------------------------------------------------------
+    // Achievements integration-style tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_unlock_all_then_verify_completion() {
+        let mut ach = Achievements::build_default();
+        assert_eq!(ach.completion_count(), (0, 10));
+
+        ach.unlock(achievements::FIRST_BLOOD);
+        assert_eq!(ach.completion_count(), (1, 10));
+
+        ach.unlock(achievements::FULL_PARTY);
+        ach.unlock(achievements::TOWER_ENTERED);
+        ach.unlock(achievements::TOWER_COMPLETED);
+        ach.unlock(achievements::BESTIARY_25);
+        assert_eq!(ach.completion_count(), (5, 10));
+
+        ach.unlock(achievements::BESTIARY_50);
+        ach.unlock(achievements::GOLD_1000);
+        ach.unlock(achievements::HARD_MODE);
+        ach.unlock(achievements::NO_KO);
+        ach.unlock(achievements::LEVEL_10);
+        assert_eq!(ach.completion_count(), (10, 10));
+    }
+
+    #[test]
+    fn test_unlock_unknown_does_not_change_completion() {
+        let mut ach = Achievements::build_default();
+        ach.unlock("fake_id_1");
+        ach.unlock("fake_id_2");
+
+        assert_eq!(ach.completion_count(), (0, 10));
+    }
+
+    #[test]
+    fn test_achievement_entry_debug_format() {
+        let entry = AchievementEntry {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            description: "A test achievement".to_string(),
+            unlocked: false,
+        };
+        let debug_str = format!("{:?}", entry);
+        assert!(debug_str.contains("test"));
+        assert!(debug_str.contains("Test"));
+    }
+
+    #[test]
+    fn test_achievements_debug_format() {
+        let ach = Achievements::build_default();
+        let debug_str = format!("{:?}", ach);
+        assert!(debug_str.contains("Achievements"));
     }
 }

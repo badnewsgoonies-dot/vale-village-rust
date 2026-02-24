@@ -533,6 +533,7 @@ fn sync_battle_display(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn rebuild_battle_unit_panels(
     mut commands: Commands,
     enemies: Res<BattleEnemies>,
@@ -541,6 +542,7 @@ fn rebuild_battle_unit_panels(
     party_areas: Query<Entity, With<PartyArea>>,
     enemy_panels: Query<Entity, With<EnemyPanelRoot>>,
     party_panels: Query<Entity, With<PartyPanelRoot>>,
+    sprite_handles: Option<Res<SpriteHandles>>,
 ) {
     if !enemies.is_changed() && !party.is_changed() {
         return;
@@ -582,17 +584,36 @@ fn rebuild_battle_unit_panels(
                     },
                 ));
 
-                // Sprite placeholder
-                col.spawn((
-                    EnemyDisplay { index: i },
-                    Node {
-                        width: Val::Px(64.0),
-                        height: Val::Px(64.0),
-                        margin: UiRect::bottom(Val::Px(8.0)),
-                        ..default()
-                    },
-                    BackgroundColor(element_color(&enemy.element)),
-                ));
+                // Enemy sprite (or colored fallback)
+                let enemy_key = sprite_key_from_name(&enemy.name);
+                let enemy_sprite = sprite_handles
+                    .as_ref()
+                    .and_then(|h| h.enemies.get(&enemy_key).cloned());
+
+                if let Some(handle) = enemy_sprite {
+                    col.spawn((
+                        EnemyDisplay { index: i },
+                        ImageNode::new(handle),
+                        Node {
+                            width: Val::Px(64.0),
+                            height: Val::Px(64.0),
+                            margin: UiRect::bottom(Val::Px(8.0)),
+                            ..default()
+                        },
+                    ));
+                } else {
+                    // Fallback: colored rectangle
+                    col.spawn((
+                        EnemyDisplay { index: i },
+                        Node {
+                            width: Val::Px(64.0),
+                            height: Val::Px(64.0),
+                            margin: UiRect::bottom(Val::Px(8.0)),
+                            ..default()
+                        },
+                        BackgroundColor(element_color(&enemy.element)),
+                    ));
+                }
 
                 // Name
                 col.spawn((
@@ -658,6 +679,24 @@ fn rebuild_battle_unit_panels(
                 },
             ))
             .with_children(|col| {
+                // Party member sprite (or skip if unavailable)
+                let member_key = sprite_key_from_name(&member.name);
+                let member_sprite = sprite_handles
+                    .as_ref()
+                    .and_then(|h| h.units.get(&member_key).cloned());
+
+                if let Some(handle) = member_sprite {
+                    col.spawn((
+                        ImageNode::new(handle),
+                        Node {
+                            width: Val::Px(48.0),
+                            height: Val::Px(48.0),
+                            margin: UiRect::bottom(Val::Px(4.0)),
+                            ..default()
+                        },
+                    ));
+                }
+
                 col.spawn((
                     PartyDisplay { index: i },
                     Text::new(&member.name),

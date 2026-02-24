@@ -79,6 +79,10 @@ struct RecruitNpc {
 #[derive(Component, Debug)]
 struct ElderNpc;
 
+/// Marks the Fortune Teller NPC whose hints change based on story progress.
+#[derive(Component, Debug)]
+struct FortuneTellerNpc;
+
 /// Marks an NPC as an innkeeper who can heal the party for gold.
 #[derive(Component, Debug)]
 struct InnKeeper {
@@ -378,8 +382,11 @@ fn setup_overworld(
         GridPosition::new(5, 8),
         NPC_COLOR,
         vec![
-            "Welcome! Take a look at my wares.".into(),
-            "We have the finest potions in all the land!".into(),
+            "Welcome! I just received a fresh shipment from the Angara trade route.".into(),
+            "Got potions, antidotes, and some Mercury Mist Elixirs — perfect for cleansing poison.".into(),
+            "If you're planning to brave the Tower of Trials, stock up on healing items. You'll burn through them fast.".into(),
+            "I also carry starter weapons for any new companions you recruit. Every adept needs a good blade.".into(),
+            "A word of advice: the creatures on the upper floors resist certain elements. Bring a balanced party.".into(),
         ],
         Some(ShopKeeper {
             items: vec![
@@ -402,9 +409,11 @@ fn setup_overworld(
         GridPosition::new(22, 5),
         NPC_COLOR,
         vec![
-            "Welcome to the Golden Sun Inn!".into(),
-            "Rest here to restore your party's health.".into(),
-            "Your party has been fully restored!".into(),
+            "Welcome to the Golden Sun Inn! You look weary. Come, sit by the fire.".into(),
+            "A traveler passed through last week, pale as a ghost. He muttered about a shadow on the tower's top floor.".into(),
+            "Some folk say there are monsters in the southern caves that haven't been seen in a hundred years.".into(),
+            "I've also heard tell of a great beast that guards the tower's deepest secret. Even the Elder won't speak of it.".into(),
+            "Rest here and I'll have your whole party feeling good as new. Your party has been fully restored!".into(),
         ],
         None,
         None,
@@ -416,9 +425,11 @@ fn setup_overworld(
         GridPosition::new(15, 5),
         NPC_ALT_COLOR,
         vec![
-            "The path north leads to the Corrupted Tower.".into(),
-            "Only the bravest adventurers dare enter.".into(),
-            "Make sure you have Djinn equipped before you go!".into(),
+            "Halt, traveler. A word of warning before you go further.".into(),
+            "The tall grass north and west of the village is crawling with wild creatures. Step in there unprepared and you won't last long.".into(),
+            "The Tower of Trials lies to the east — you can see its peak from here. Many brave souls have entered. Fewer have returned.".into(),
+            "Make sure you have Djinn equipped and your party at full strength before you stray from the roads.".into(),
+            "If you stick to the stone paths, you'll be safe. The creatures don't venture onto them.".into(),
         ],
         None,
     );
@@ -428,9 +439,11 @@ fn setup_overworld(
         GridPosition::new(26, 6),
         NPC_ALT_COLOR,
         vec![
-            "The Tower of Trials awaits brave adventurers.".into(),
-            "Enter through the door when you're ready.".into(),
-            "Each floor holds stronger foes than the last.".into(),
+            "This is the Tower of Trials, erected by the Alchemy adepts who founded Vale Village centuries ago.".into(),
+            "It was built as a proving ground — ten floors of increasing danger, each guarded by creatures that feed on Psynergy.".into(),
+            "I've watched seasoned warriors flee from the fifth floor with terror in their eyes. Something unnatural lurks there.".into(),
+            "But the rewards are real. Rare Djinn nest within, and ancient artifacts lie waiting for those strong enough to claim them.".into(),
+            "My advice? Bring a full party, stock up on potions and antidotes, and don't be ashamed to retreat if things go wrong.".into(),
         ],
         None,
     );
@@ -439,12 +452,14 @@ fn setup_overworld(
     spawn_npc(
         &mut commands,
         "Scholar Liam",
-        GridPosition::new(10, 12),
+        GridPosition::new(10, 18),
         NPC_ALT_COLOR,
         vec![
-            "I've been studying the ancient tower to the north...".into(),
-            "The texts say it was built by Alchemy adepts long ago.".into(),
-            "Each floor tests a different aspect of Psynergy mastery.".into(),
+            "Ah, a fellow seeker of knowledge! I've devoted my life to studying the elemental arts and the history of Alchemy.".into(),
+            "There are four primal elements: Venus, the earth; Jupiter, the wind; Mercury, the water; and Mars, the flame.".into(),
+            "Each element holds dominion over another. Venus overcomes Jupiter, Jupiter overcomes Mercury, Mercury overcomes Mars, and Mars overcomes Venus.".into(),
+            "Djinn are ancient elemental spirits that bond with adepts. When set in battle, they can unleash devastating summons that shake the very ground.".into(),
+            "Vale Village was founded by Alchemy adepts who sealed a great power within the tower. But the seal weakens with each passing year. That is why the creatures grow bolder.".into(),
         ],
         None,
     );
@@ -454,9 +469,58 @@ fn setup_overworld(
         GridPosition::new(21, 13),
         NPC_COLOR,
         vec![
-            "When I grow up, I want to be an adept like you!".into(),
-            "I heard there are Djinn hiding all over the world.".into(),
-            "Maybe one day I'll go on an adventure too!".into(),
+            "Hey, hey! Are you an adept? A real one? When I grow up, I want to be just like you!".into(),
+            "I snuck out to the caves south of town yesterday... please don't tell my mom!".into(),
+            "I saw strange glowing creatures down there. One looked like a tiny spirit made of golden light — it was so pretty!".into(),
+            "Scholar Liam says Djinn hide in places with strong Psynergy. Maybe that's what I saw? I should tell him!".into(),
+            "Oh! I almost forgot — I found a weird symbol carved into the cave wall. It looked exactly like the rune on the tower door. Spooky, right?".into(),
+        ],
+        None,
+    );
+
+    // Blacksmith (near the shop)
+    spawn_npc(
+        &mut commands,
+        "Blacksmith",
+        GridPosition::new(18, 12),
+        NPC_ALT_COLOR,
+        vec![
+            "The name's Garet. I've worked this forge for twenty years, ever since my old man taught me the trade.".into(),
+            "A good blade needs strong metal and stronger will. Same goes for the adept who wields it.".into(),
+            "The shop sells decent starter gear, but if you want real firepower, you need something forged with Psynergy ore.".into(),
+            "If you find rare materials in the tower — elemental shards, ancient ingots — bring them to me. I can craft weapons the ancients would envy.".into(),
+            "And keep your gear maintained! A chipped sword in the heat of battle is a death sentence.".into(),
+        ],
+        None,
+    );
+
+    // Fortune Teller (dynamic dialog based on story flags)
+    {
+        let ft_entity = spawn_npc_full(
+            &mut commands,
+            "Fortune Teller",
+            GridPosition::new(6, 14),
+            NPC_ALT_COLOR,
+            vec!["The stars whisper of your destiny, child of Alchemy...".into()],
+            None,
+            None,
+            None,
+        );
+        commands.entity(ft_entity).insert(FortuneTellerNpc);
+    }
+
+    // Wandering Merchant
+    spawn_npc(
+        &mut commands,
+        "Wandering Merchant",
+        GridPosition::new(22, 8),
+        NPC_COLOR,
+        vec![
+            "Greetings, friend! The name's Obaba. I've traveled from lands far beyond the eastern mountains.".into(),
+            "In the markets of Lemuria, I once saw Djinn sold in crystal cages. Barbaric, yes, but the power they granted was undeniable.".into(),
+            "There are rare treasures hidden on the deepest floors of towers like yours — artifacts from the age of Alchemy.".into(),
+            "I once met a merchant who sold a single potion for a thousand gold. He claimed it could bring the dead back to life. I believed him.".into(),
+            "If you ever venture beyond Vale Village, seek the port city of Champa. Their wares make our little shop look like a market stall.".into(),
         ],
         None,
     );
@@ -582,7 +646,7 @@ fn spawn_npc_full(
     shopkeeper: Option<ShopKeeper>,
     recruit: Option<RecruitNpc>,
     innkeeper: Option<InnKeeper>,
-) {
+) -> Entity {
     let mut npc = commands.spawn((
         OverworldRoot,
         Npc {
@@ -603,6 +667,7 @@ fn spawn_npc_full(
     if let Some(innkeeper) = innkeeper {
         npc.insert(innkeeper);
     }
+    npc.id()
 }
 
 // ── Systems ───────────────────────────────────────────────────────────
@@ -890,6 +955,7 @@ fn player_interact(
         Option<&RecruitNpc>,
         Option<&InnKeeper>,
         Option<&ElderNpc>,
+        Option<&FortuneTellerNpc>,
     )>,
     mut dialog_box: Query<&mut Visibility, With<DialogBox>>,
     mut dialog_text: Query<&mut Text, With<DialogText>>,
@@ -913,7 +979,7 @@ fn player_interact(
     };
     let face = GridPosition::new(player_pos.x + fx, player_pos.y + fy);
 
-    for (npc_entity, npc_pos, npc, recruit, innkeeper, elder) in &npc_query {
+    for (npc_entity, npc_pos, npc, recruit, innkeeper, elder, fortune_teller) in &npc_query {
         if *npc_pos == face {
             dialog.active = true;
             dialog.speaker = npc.name.clone();
@@ -923,6 +989,9 @@ fn player_interact(
             // Elder NPC: dynamically choose dialog based on story flags.
             if elder.is_some() {
                 dialog.lines = elder_dialog_lines(&party);
+            // Fortune Teller NPC: dynamically choose hints based on story flags.
+            } else if fortune_teller.is_some() {
+                dialog.lines = fortune_teller_dialog_lines(&party);
             // If this is an innkeeper NPC, check if the player can afford to rest.
             } else if let Some(inn) = innkeeper {
                 if party.gold < inn.cost {
@@ -1119,6 +1188,60 @@ fn elder_dialog_lines(party: &Party) -> Vec<String> {
     }
 }
 
+// ── Fortune Teller NPC dialog logic (pure function) ──────────────────
+
+/// Returns the dialog lines the Fortune Teller should say based on story flags.
+///
+/// Progression tiers (checked from most advanced to least):
+/// 1. Tower completed  → prophecy fulfilled, hint at future adventures
+/// 2. Tower floor 5    → warn about the final guardian
+/// 3. Tower entered    → cryptic encouragement to press on
+/// 4. First battle won → hint about the tower's nature
+/// 5. Talked to Elder  → nudge toward recruitment
+/// 6. Default          → mysterious introduction and general guidance
+fn fortune_teller_dialog_lines(party: &Party) -> Vec<String> {
+    if party.has_flag(story::TOWER_COMPLETED) {
+        vec![
+            "The cards fall silent... the great trial is behind you.".into(),
+            "But do not grow complacent. The stars reveal new shadows gathering beyond the mountains.".into(),
+            "Your destiny is far from complete, child of Alchemy. Greater trials await in distant lands.".into(),
+        ]
+    } else if party.has_flag(story::TOWER_FLOOR_5) {
+        vec![
+            "I see darkness... a guardian of immense power bars your path on the final floors.".into(),
+            "It feeds on the fear of those who challenge it. Steel your heart, or it will consume you.".into(),
+            "The key to victory lies in the balance of elements. No single force can overcome it alone.".into(),
+        ]
+    } else if party.has_flag(story::TOWER_ENTERED) {
+        vec![
+            "The tower has tasted your resolve... and found it wanting? No — not yet.".into(),
+            "I see floors yet unclimbed, enemies yet unvanquished. Press onward, but do not rush."
+                .into(),
+            "The spirits within grow restless. They sense your Psynergy. Use it wisely.".into(),
+        ]
+    } else if party.has_flag(story::FIRST_BATTLE_WON) {
+        vec![
+            "Ah, I sense the mark of battle upon you. You have tasted combat and survived.".into(),
+            "The tower to the east calls to those with such strength. Its stones hum with ancient Psynergy.".into(),
+            "But beware — the tower tests more than muscle. It tests the bonds between allies.".into(),
+        ]
+    } else if party.has_flag(story::TALKED_TO_ELDER) {
+        vec![
+            "The Elder has spoken to you... good. Her wisdom is not to be taken lightly.".into(),
+            "I see companions in your future — a wind seer, a flame wielder, and a water sage."
+                .into(),
+            "Seek them out before you face the tower. Alone, even the strongest adept will falter."
+                .into(),
+        ]
+    } else {
+        vec![
+            "Welcome, traveler... I have been expecting you. The stars told me of your coming.".into(),
+            "I am a reader of fates. The Psynergy that flows through this land speaks to me in whispers.".into(),
+            "Your path is shrouded in mist, but I see a great trial ahead. Speak to the Elder — she will set you on your way.".into(),
+        ]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1178,5 +1301,83 @@ mod tests {
         let lines = elder_dialog_lines(&party);
         // Completed takes priority over entered
         assert!(lines[0].contains("conquered the Tower"));
+    }
+
+    // ── Fortune Teller dialog tests ──────────────────────────────────
+
+    #[test]
+    fn fortune_teller_default_no_flags() {
+        let party = Party::default();
+        let lines = fortune_teller_dialog_lines(&party);
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("expecting you"));
+        assert!(lines[2].contains("Elder"));
+    }
+
+    #[test]
+    fn fortune_teller_after_talked_to_elder() {
+        let mut party = Party::default();
+        party.set_flag(story::TALKED_TO_ELDER, true);
+        let lines = fortune_teller_dialog_lines(&party);
+        assert_eq!(lines.len(), 3);
+        assert!(lines[1].contains("companions"));
+    }
+
+    #[test]
+    fn fortune_teller_after_first_battle() {
+        let mut party = Party::default();
+        party.set_flag(story::FIRST_BATTLE_WON, true);
+        let lines = fortune_teller_dialog_lines(&party);
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("mark of battle"));
+    }
+
+    #[test]
+    fn fortune_teller_tower_entered() {
+        let mut party = Party::default();
+        party.set_flag(story::TOWER_ENTERED, true);
+        let lines = fortune_teller_dialog_lines(&party);
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("tower has tasted"));
+    }
+
+    #[test]
+    fn fortune_teller_tower_floor_5() {
+        let mut party = Party::default();
+        party.set_flag(story::TOWER_FLOOR_5, true);
+        let lines = fortune_teller_dialog_lines(&party);
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("guardian"));
+        assert!(lines[2].contains("balance of elements"));
+    }
+
+    #[test]
+    fn fortune_teller_tower_completed() {
+        let mut party = Party::default();
+        party.set_flag(story::TOWER_COMPLETED, true);
+        let lines = fortune_teller_dialog_lines(&party);
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("great trial is behind you"));
+        assert!(lines[2].contains("Greater trials"));
+    }
+
+    #[test]
+    fn fortune_teller_completed_overrides_floor_5() {
+        let mut party = Party::default();
+        party.set_flag(story::TOWER_FLOOR_5, true);
+        party.set_flag(story::TOWER_COMPLETED, true);
+        let lines = fortune_teller_dialog_lines(&party);
+        // Completed takes priority over floor 5
+        assert!(lines[0].contains("great trial is behind you"));
+    }
+
+    #[test]
+    fn fortune_teller_tower_entered_overrides_first_battle() {
+        let mut party = Party::default();
+        party.set_flag(story::FIRST_BATTLE_WON, true);
+        party.set_flag(story::TOWER_ENTERED, true);
+        let lines = fortune_teller_dialog_lines(&party);
+        // Tower entered takes priority over first battle
+        assert!(lines[0].contains("tower has tasted"));
     }
 }

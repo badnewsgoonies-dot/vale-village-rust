@@ -415,3 +415,395 @@ impl Plugin for SavePlugin {
         app.insert_resource(SaveSystem::default());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plugins::core_plugin::{BestiaryEntry, Difficulty};
+    use std::collections::HashMap;
+
+    /// Build a fully-populated SaveData for testing. Every field is set to a
+    /// non-default value so that round-trip tests are meaningful.
+    fn make_test_save_data() -> SaveData {
+        let mut story_flags = HashMap::new();
+        story_flags.insert("tower_entered".to_string(), true);
+        story_flags.insert("recruited_karis".to_string(), true);
+        story_flags.insert("first_battle_won".to_string(), false);
+
+        let mut unit_levels = HashMap::new();
+        unit_levels.insert("adept".to_string(), (12, 4500));
+        unit_levels.insert("karis".to_string(), (10, 3200));
+
+        let mut djinn_assignments = HashMap::new();
+        djinn_assignments.insert("flint".to_string(), "adept".to_string());
+        djinn_assignments.insert("gust".to_string(), "karis".to_string());
+
+        let mut equipment = HashMap::new();
+        let mut adept_equip = HashMap::new();
+        adept_equip.insert("weapon".to_string(), "long_sword".to_string());
+        adept_equip.insert("armor".to_string(), "leather_armor".to_string());
+        equipment.insert("adept".to_string(), adept_equip);
+
+        let mut unit_hp_pp = HashMap::new();
+        unit_hp_pp.insert("adept".to_string(), (180, 45));
+        unit_hp_pp.insert("karis".to_string(), (140, 60));
+
+        let party = Party {
+            active: vec!["adept".to_string(), "karis".to_string()],
+            bench: vec!["tyrell".to_string()],
+            gold: 2500,
+            inventory: vec![
+                "herb".to_string(),
+                "antidote".to_string(),
+                "elixir".to_string(),
+            ],
+            equipment,
+            unit_levels: unit_levels.clone(),
+            unit_hp_pp,
+            djinn_assignments: djinn_assignments.clone(),
+            story_flags: story_flags.clone(),
+            difficulty: Difficulty::Hard,
+        };
+
+        let party_data = vec![
+            PartyMemberSaveData {
+                unit_id: "adept".to_string(),
+                hp: 180,
+                pp: 45,
+                level: 12,
+                xp: 4500,
+            },
+            PartyMemberSaveData {
+                unit_id: "karis".to_string(),
+                hp: 140,
+                pp: 60,
+                level: 10,
+                xp: 3200,
+            },
+        ];
+
+        let mut bestiary = Bestiary::default();
+        bestiary.entries.insert(
+            "slime_01".to_string(),
+            BestiaryEntry {
+                enemy_id: "slime_01".to_string(),
+                enemy_name: "Green Slime".to_string(),
+                times_encountered: 5,
+                times_defeated: 3,
+                first_encountered: false,
+            },
+        );
+        bestiary.entries.insert(
+            "bat_01".to_string(),
+            BestiaryEntry {
+                enemy_id: "bat_01".to_string(),
+                enemy_name: "Cave Bat".to_string(),
+                times_encountered: 2,
+                times_defeated: 1,
+                first_encountered: false,
+            },
+        );
+
+        SaveData {
+            version: 1,
+            party,
+            party_data,
+            unit_levels,
+            djinn_assignments,
+            story_flags,
+            current_map: "tower_floor_3".to_string(),
+            player_position: GridPosition::new(15, 22),
+            tower_floor: 3,
+            gold: 2500,
+            play_time_secs: 7200.5,
+            bestiary,
+        }
+    }
+
+    /// Create a SaveSystem pointing at a unique temporary directory.
+    fn make_test_save_system() -> (SaveSystem, PathBuf) {
+        let base = std::env::temp_dir().join(format!(
+            "vale_village_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let sys = SaveSystem {
+            save_dir: base.clone(),
+            max_slots: 3,
+        };
+        (sys, base)
+    }
+
+    /// Clean up a temp directory (best-effort).
+    fn cleanup(path: &std::path::Path) {
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    // -------------------------------------------------------------------
+    // Round-trip test
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_save_and_load_round_trip() {
+        let (sys, dir) = make_test_save_system();
+        let data = make_test_save_data();
+
+        sys.save(0, &data).expect("save should succeed");
+        let loaded = sys.load(0).expect("load should succeed");
+
+        // Version
+        assert_eq!(loaded.version, data.version);
+
+        // Party basics
+        assert_eq!(loaded.party.active, data.party.active);
+        assert_eq!(loaded.party.bench, data.party.bench);
+        assert_eq!(loaded.party.gold, data.party.gold);
+        assert_eq!(loaded.party.inventory, data.party.inventory);
+        assert_eq!(loaded.party.equipment, data.party.equipment);
+        assert_eq!(loaded.party.difficulty, data.party.difficulty);
+
+        // Party data (per-member stats)
+        assert_eq!(loaded.party_data.len(), data.party_data.len());
+        for (l, d) in loaded.party_data.iter().zip(data.party_data.iter()) {
+            assert_eq!(l.unit_id, d.unit_id);
+            assert_eq!(l.hp, d.hp);
+            assert_eq!(l.pp, d.pp);
+            assert_eq!(l.level, d.level);
+            assert_eq!(l.xp, d.xp);
+        }
+
+        // Unit levels
+        assert_eq!(loaded.unit_levels, data.unit_levels);
+
+        // Djinn assignments
+        assert_eq!(loaded.djinn_assignments, data.djinn_assignments);
+
+        // Story flags
+        assert_eq!(loaded.story_flags, data.story_flags);
+
+        // Map/position
+        assert_eq!(loaded.current_map, data.current_map);
+        assert_eq!(loaded.player_position, data.player_position);
+        assert_eq!(loaded.tower_floor, data.tower_floor);
+
+        // Economy / time
+        assert_eq!(loaded.gold, data.gold);
+        assert!((loaded.play_time_secs - data.play_time_secs).abs() < f64::EPSILON);
+
+        // Bestiary
+        assert_eq!(loaded.bestiary.entries.len(), data.bestiary.entries.len());
+        for (id, entry) in &data.bestiary.entries {
+            let loaded_entry = loaded
+                .bestiary
+                .entries
+                .get(id)
+                .expect("bestiary entry should exist");
+            assert_eq!(loaded_entry.enemy_id, entry.enemy_id);
+            assert_eq!(loaded_entry.enemy_name, entry.enemy_name);
+            assert_eq!(loaded_entry.times_encountered, entry.times_encountered);
+            assert_eq!(loaded_entry.times_defeated, entry.times_defeated);
+            assert_eq!(loaded_entry.first_encountered, entry.first_encountered);
+        }
+
+        cleanup(&dir);
+    }
+
+    // -------------------------------------------------------------------
+    // Invalid slot
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_save_to_invalid_slot() {
+        let (sys, dir) = make_test_save_system();
+        let data = SaveData::default();
+
+        let result = sys.save(3, &data);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid save slot"));
+
+        let result = sys.save(100, &data);
+        assert!(result.is_err());
+
+        cleanup(&dir);
+    }
+
+    // -------------------------------------------------------------------
+    // Load from empty slot
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_load_from_empty_slot() {
+        let (sys, dir) = make_test_save_system();
+
+        let result = sys.load(0);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("No save file in slot"));
+
+        cleanup(&dir);
+    }
+
+    // -------------------------------------------------------------------
+    // Available saves
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_available_saves() {
+        let (sys, dir) = make_test_save_system();
+        let data = make_test_save_data();
+
+        // Initially all slots are empty
+        let saves = sys.list_saves();
+        assert_eq!(saves.len(), 3);
+        assert!(!saves[0].1);
+        assert!(!saves[1].1);
+        assert!(!saves[2].1);
+
+        // Save to slots 0 and 2
+        sys.save(0, &data).expect("save slot 0");
+        sys.save(2, &data).expect("save slot 2");
+
+        let saves = sys.list_saves();
+        assert!(saves[0].1, "slot 0 should have a save");
+        assert!(!saves[1].1, "slot 1 should be empty");
+        assert!(saves[2].1, "slot 2 should have a save");
+
+        cleanup(&dir);
+    }
+
+    // -------------------------------------------------------------------
+    // Delete save
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_delete_save() {
+        let (sys, dir) = make_test_save_system();
+        let data = make_test_save_data();
+
+        sys.save(1, &data).expect("save should succeed");
+        assert!(sys.load(1).is_ok(), "load after save should succeed");
+
+        sys.delete(1).expect("delete should succeed");
+        let result = sys.load(1);
+        assert!(result.is_err(), "load after delete should fail");
+        assert!(result.unwrap_err().contains("No save file in slot"));
+
+        cleanup(&dir);
+    }
+
+    // -------------------------------------------------------------------
+    // Story flags preservation
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_save_preserves_story_flags() {
+        let (sys, dir) = make_test_save_system();
+        let data = make_test_save_data();
+
+        sys.save(0, &data).expect("save should succeed");
+        let loaded = sys.load(0).expect("load should succeed");
+
+        assert_eq!(loaded.story_flags.len(), 3);
+        assert_eq!(loaded.story_flags.get("tower_entered"), Some(&true));
+        assert_eq!(loaded.story_flags.get("recruited_karis"), Some(&true));
+        assert_eq!(loaded.story_flags.get("first_battle_won"), Some(&false));
+
+        // Also verify the party-level story_flags mirror
+        assert_eq!(loaded.party.story_flags.get("tower_entered"), Some(&true));
+        assert_eq!(loaded.party.story_flags.get("recruited_karis"), Some(&true));
+        assert_eq!(
+            loaded.party.story_flags.get("first_battle_won"),
+            Some(&false)
+        );
+
+        cleanup(&dir);
+    }
+
+    // -------------------------------------------------------------------
+    // Inventory / equipment preservation
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_save_preserves_inventory() {
+        let (sys, dir) = make_test_save_system();
+        let data = make_test_save_data();
+
+        sys.save(0, &data).expect("save should succeed");
+        let loaded = sys.load(0).expect("load should succeed");
+
+        // Inventory items
+        assert_eq!(loaded.party.inventory.len(), 3);
+        assert!(loaded.party.inventory.contains(&"herb".to_string()));
+        assert!(loaded.party.inventory.contains(&"antidote".to_string()));
+        assert!(loaded.party.inventory.contains(&"elixir".to_string()));
+
+        // Equipment
+        let adept_equip = loaded
+            .party
+            .equipment
+            .get("adept")
+            .expect("adept equipment should exist");
+        assert_eq!(adept_equip.get("weapon"), Some(&"long_sword".to_string()));
+        assert_eq!(adept_equip.get("armor"), Some(&"leather_armor".to_string()));
+
+        cleanup(&dir);
+    }
+
+    // -------------------------------------------------------------------
+    // Bestiary preservation
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_save_preserves_bestiary() {
+        let (sys, dir) = make_test_save_system();
+        let data = make_test_save_data();
+
+        sys.save(0, &data).expect("save should succeed");
+        let loaded = sys.load(0).expect("load should succeed");
+
+        assert_eq!(loaded.bestiary.entries.len(), 2);
+
+        let slime = loaded
+            .bestiary
+            .entries
+            .get("slime_01")
+            .expect("slime entry should exist");
+        assert_eq!(slime.enemy_name, "Green Slime");
+        assert_eq!(slime.times_encountered, 5);
+        assert_eq!(slime.times_defeated, 3);
+        assert!(!slime.first_encountered);
+
+        let bat = loaded
+            .bestiary
+            .entries
+            .get("bat_01")
+            .expect("bat entry should exist");
+        assert_eq!(bat.enemy_name, "Cave Bat");
+        assert_eq!(bat.times_encountered, 2);
+        assert_eq!(bat.times_defeated, 1);
+        assert!(!bat.first_encountered);
+
+        cleanup(&dir);
+    }
+
+    // -------------------------------------------------------------------
+    // Difficulty preservation
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_save_preserves_difficulty() {
+        let (sys, dir) = make_test_save_system();
+        let data = make_test_save_data();
+
+        // Confirm the test data uses Hard difficulty
+        assert_eq!(data.party.difficulty, Difficulty::Hard);
+
+        sys.save(0, &data).expect("save should succeed");
+        let loaded = sys.load(0).expect("load should succeed");
+
+        assert_eq!(loaded.party.difficulty, Difficulty::Hard);
+
+        cleanup(&dir);
+    }
+}
