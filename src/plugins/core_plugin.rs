@@ -2,6 +2,8 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[allow(unused_imports)]
+use crate::components::stats::Element;
 use crate::data::{
     abilities::Ability,
     djinn::DjinnDefinition,
@@ -9,8 +11,6 @@ use crate::data::{
     items::{EquipmentDefinition, ItemDefinition},
     units::UnitDefinition,
 };
-#[allow(unused_imports)]
-use crate::components::stats::Element;
 
 // ---------------------------------------------------------------------------
 // Game state -- top-level state machine for screen transitions
@@ -2195,5 +2195,359 @@ mod tests {
             4,
             "Flag count should be 4 after round trip"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Weather system tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_weather_default_is_clear() {
+        let state = WeatherState::default();
+        assert_eq!(state.current, Weather::Clear);
+        assert_eq!(state.intensity, 0.0);
+        assert_eq!(state.current_zone, "vale_village");
+        assert!(
+            (30.0..=60.0).contains(&state.transition_timer),
+            "Default transition timer should be between 30 and 60 seconds"
+        );
+    }
+
+    #[test]
+    fn test_weather_enum_all_variants() {
+        let all = Weather::all();
+        assert_eq!(all.len(), 5);
+        assert!(all.contains(&Weather::Clear));
+        assert!(all.contains(&Weather::Rain));
+        assert!(all.contains(&Weather::Snow));
+        assert!(all.contains(&Weather::Fog));
+        assert!(all.contains(&Weather::Sandstorm));
+    }
+
+    #[test]
+    fn test_weather_element_bonus_rain_boosts_mercury() {
+        let bonus = get_weather_element_bonus(&Weather::Rain, &Element::Mercury);
+        assert!(
+            (bonus - 1.10).abs() < f32::EPSILON,
+            "Rain should boost Mercury by 10%"
+        );
+    }
+
+    #[test]
+    fn test_weather_element_bonus_rain_penalises_mars() {
+        let bonus = get_weather_element_bonus(&Weather::Rain, &Element::Mars);
+        assert!(
+            (bonus - 0.90).abs() < f32::EPSILON,
+            "Rain should penalise Mars by 10%"
+        );
+    }
+
+    #[test]
+    fn test_weather_element_bonus_sandstorm_boosts_venus() {
+        let bonus = get_weather_element_bonus(&Weather::Sandstorm, &Element::Venus);
+        assert!(
+            (bonus - 1.10).abs() < f32::EPSILON,
+            "Sandstorm should boost Venus by 10%"
+        );
+    }
+
+    #[test]
+    fn test_weather_element_bonus_sandstorm_penalises_jupiter() {
+        let bonus = get_weather_element_bonus(&Weather::Sandstorm, &Element::Jupiter);
+        assert!(
+            (bonus - 0.90).abs() < f32::EPSILON,
+            "Sandstorm should penalise Jupiter by 10%"
+        );
+    }
+
+    #[test]
+    fn test_weather_element_bonus_snow_boosts_mercury_and_jupiter() {
+        let mercury_bonus = get_weather_element_bonus(&Weather::Snow, &Element::Mercury);
+        let jupiter_bonus = get_weather_element_bonus(&Weather::Snow, &Element::Jupiter);
+        assert!(
+            (mercury_bonus - 1.05).abs() < f32::EPSILON,
+            "Snow should boost Mercury by 5%"
+        );
+        assert!(
+            (jupiter_bonus - 1.05).abs() < f32::EPSILON,
+            "Snow should boost Jupiter by 5%"
+        );
+    }
+
+    #[test]
+    fn test_weather_element_bonus_fog_boosts_jupiter() {
+        let bonus = get_weather_element_bonus(&Weather::Fog, &Element::Jupiter);
+        assert!(
+            (bonus - 1.10).abs() < f32::EPSILON,
+            "Fog should boost Jupiter by 10%"
+        );
+    }
+
+    #[test]
+    fn test_weather_element_bonus_clear_is_neutral() {
+        for element in &[
+            Element::Venus,
+            Element::Mercury,
+            Element::Mars,
+            Element::Jupiter,
+            Element::Neutral,
+        ] {
+            let bonus = get_weather_element_bonus(&Weather::Clear, element);
+            assert!(
+                (bonus - 1.0).abs() < f32::EPSILON,
+                "Clear weather should give 1.0 multiplier for {:?}",
+                element
+            );
+        }
+    }
+
+    #[test]
+    fn test_weather_element_bonus_neutral_element_unaffected() {
+        for weather in Weather::all() {
+            let bonus = get_weather_element_bonus(weather, &Element::Neutral);
+            assert!(
+                (bonus - 1.0).abs() < f32::EPSILON,
+                "Neutral element should be unaffected by {:?}",
+                weather
+            );
+        }
+    }
+
+    #[test]
+    fn test_weather_element_bonus_rain_neutral_to_venus() {
+        let bonus = get_weather_element_bonus(&Weather::Rain, &Element::Venus);
+        assert!(
+            (bonus - 1.0).abs() < f32::EPSILON,
+            "Rain should not affect Venus"
+        );
+    }
+
+    #[test]
+    fn test_weather_element_bonus_sandstorm_neutral_to_mercury() {
+        let bonus = get_weather_element_bonus(&Weather::Sandstorm, &Element::Mercury);
+        assert!(
+            (bonus - 1.0).abs() < f32::EPSILON,
+            "Sandstorm should not affect Mercury"
+        );
+    }
+
+    #[test]
+    fn test_zone_weather_weights_default() {
+        let weights = ZoneWeatherWeights::default();
+        let total = weights.clear + weights.rain + weights.snow + weights.fog + weights.sandstorm;
+        assert!(
+            (total - 1.0).abs() < 0.01,
+            "Default weights should approximately sum to 1.0, got {}",
+            total
+        );
+    }
+
+    #[test]
+    fn test_zone_weather_weights_select_low_returns_clear() {
+        // With default weights (clear=0.50), a random value near 0 should pick Clear
+        let weights = ZoneWeatherWeights::default();
+        let selected = weights.select(0.0);
+        assert_eq!(
+            selected,
+            Weather::Clear,
+            "Random value 0.0 with default weights should select Clear"
+        );
+    }
+
+    #[test]
+    fn test_zone_weather_weights_select_high_returns_sandstorm() {
+        // With default weights, a random value near 1.0 should pick the last bucket (Sandstorm)
+        let weights = ZoneWeatherWeights::default();
+        let selected = weights.select(0.999);
+        assert_eq!(
+            selected,
+            Weather::Sandstorm,
+            "Random value 0.999 with default weights should select Sandstorm"
+        );
+    }
+
+    #[test]
+    fn test_zone_weather_weights_select_all_zero_returns_clear() {
+        let weights = ZoneWeatherWeights {
+            clear: 0.0,
+            rain: 0.0,
+            snow: 0.0,
+            fog: 0.0,
+            sandstorm: 0.0,
+        };
+        let selected = weights.select(0.5);
+        assert_eq!(
+            selected,
+            Weather::Clear,
+            "All-zero weights should default to Clear"
+        );
+    }
+
+    #[test]
+    fn test_zone_weather_weights_single_option() {
+        let weights = ZoneWeatherWeights {
+            clear: 0.0,
+            rain: 1.0,
+            snow: 0.0,
+            fog: 0.0,
+            sandstorm: 0.0,
+        };
+        // Any random value should return Rain since it's the only non-zero weight
+        for val in [0.0, 0.25, 0.5, 0.75, 0.99] {
+            let selected = weights.select(val);
+            assert_eq!(
+                selected,
+                Weather::Rain,
+                "Only-rain weights should always select Rain (val={})",
+                val
+            );
+        }
+    }
+
+    #[test]
+    fn test_weather_config_default_has_expected_zones() {
+        let config = WeatherConfig::default();
+        assert!(
+            config.zones.contains_key("vale_village"),
+            "Default config should have vale_village zone"
+        );
+        assert!(
+            config.zones.contains_key("mountain"),
+            "Default config should have mountain zone"
+        );
+        assert!(
+            config.zones.contains_key("desert"),
+            "Default config should have desert zone"
+        );
+        assert!(
+            config.zones.contains_key("tower"),
+            "Default config should have tower zone"
+        );
+    }
+
+    #[test]
+    fn test_weather_config_weights_for_known_zone() {
+        let config = WeatherConfig::default();
+        let desert_weights = config.weights_for_zone("desert");
+        assert!(
+            desert_weights.sandstorm > 0.5,
+            "Desert zone should heavily favour sandstorms"
+        );
+    }
+
+    #[test]
+    fn test_weather_config_weights_for_unknown_zone_falls_back() {
+        let config = WeatherConfig::default();
+        let fallback = config.weights_for_zone("nonexistent_zone");
+        // Should get ZoneWeatherWeights::default()
+        let default = ZoneWeatherWeights::default();
+        assert!(
+            (fallback.clear - default.clear).abs() < f32::EPSILON,
+            "Unknown zone should fall back to default weights"
+        );
+    }
+
+    #[test]
+    fn test_weather_serialization_round_trip() {
+        let state = WeatherState {
+            current: Weather::Rain,
+            intensity: 0.75,
+            transition_timer: 42.5,
+            current_zone: "mountain".to_string(),
+        };
+
+        let serialized = ron::to_string(&state).expect("WeatherState should serialize to RON");
+        let deserialized: WeatherState =
+            ron::from_str(&serialized).expect("WeatherState should deserialize from RON");
+
+        assert_eq!(deserialized.current, Weather::Rain);
+        assert!((deserialized.intensity - 0.75).abs() < f32::EPSILON);
+        assert!((deserialized.transition_timer - 42.5).abs() < f32::EPSILON);
+        assert_eq!(deserialized.current_zone, "mountain");
+    }
+
+    #[test]
+    fn test_weather_enum_serialization_round_trip() {
+        for weather in Weather::all() {
+            let serialized = ron::to_string(weather).expect("Weather variant should serialize");
+            let deserialized: Weather =
+                ron::from_str(&serialized).expect("Weather variant should deserialize");
+            assert_eq!(
+                *weather, deserialized,
+                "Round trip should preserve {:?}",
+                weather
+            );
+        }
+    }
+
+    #[test]
+    fn test_weather_config_serialization_round_trip() {
+        let config = WeatherConfig::default();
+        let serialized = ron::to_string(&config).expect("WeatherConfig should serialize to RON");
+        let deserialized: WeatherConfig =
+            ron::from_str(&serialized).expect("WeatherConfig should deserialize from RON");
+
+        assert_eq!(
+            deserialized.zones.len(),
+            config.zones.len(),
+            "Zone count should match after round trip"
+        );
+        for zone_name in config.zones.keys() {
+            assert!(
+                deserialized.zones.contains_key(zone_name),
+                "Zone '{}' should be present after round trip",
+                zone_name
+            );
+        }
+    }
+
+    #[test]
+    fn test_zone_weather_weighted_list_length() {
+        let weights = ZoneWeatherWeights::default();
+        let list = weights.weighted_list();
+        assert_eq!(
+            list.len(),
+            5,
+            "Weighted list should have exactly 5 entries (one per weather type)"
+        );
+    }
+
+    #[test]
+    fn test_weather_state_manual_transition() {
+        // Simulate a manual weather state change as the system would do
+        let mut state = WeatherState::default();
+        assert_eq!(state.current, Weather::Clear);
+
+        state.current = Weather::Sandstorm;
+        state.intensity = 0.8;
+        state.transition_timer = 35.0;
+
+        assert_eq!(state.current, Weather::Sandstorm);
+        assert!((state.intensity - 0.8).abs() < f32::EPSILON);
+        assert!((state.transition_timer - 35.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_weather_element_bonus_comprehensive_matrix() {
+        // Test every (Weather, Element) combination to ensure no panics
+        // and all return values are in a valid range.
+        for weather in Weather::all() {
+            for element in &[
+                Element::Venus,
+                Element::Mercury,
+                Element::Mars,
+                Element::Jupiter,
+                Element::Neutral,
+            ] {
+                let bonus = get_weather_element_bonus(weather, element);
+                assert!(
+                    (0.5..=2.0).contains(&bonus),
+                    "Bonus for {:?}/{:?} should be in [0.5, 2.0], got {}",
+                    weather,
+                    element,
+                    bonus
+                );
+            }
+        }
     }
 }
