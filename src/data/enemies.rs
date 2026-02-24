@@ -967,3 +967,77 @@ pub fn get_enemies_by_tier(tier: u8) -> Vec<EnemyDefinition> {
     let registry = build_enemy_registry();
     registry.into_values().filter(|e| e.tier == tier).collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_all_enemies_have_valid_tier() {
+        let registry = build_enemy_registry();
+        for (id, enemy) in &registry {
+            assert!(
+                (1..=4).contains(&enemy.tier),
+                "Enemy '{}' has invalid tier {}",
+                id,
+                enemy.tier
+            );
+        }
+    }
+
+    #[test]
+    fn test_enemy_count() {
+        let registry = build_enemy_registry();
+        assert!(
+            registry.len() >= 40,
+            "Expected at least 40 enemies, got {}",
+            registry.len()
+        );
+    }
+
+    #[test]
+    fn test_get_enemies_by_tier_nonempty() {
+        for tier in [1, 2, 4] {
+            let enemies = get_enemies_by_tier(tier);
+            assert!(
+                !enemies.is_empty(),
+                "Tier {} should have at least one enemy",
+                tier
+            );
+        }
+    }
+
+    #[test]
+    fn test_boss_enemies_tier_4() {
+        let registry = build_enemy_registry();
+        let tier_4: Vec<_> = registry.values().filter(|e| e.tier == 4).collect();
+        assert!(
+            !tier_4.is_empty(),
+            "There should be at least one tier 4 (boss) enemy"
+        );
+        for enemy in &tier_4 {
+            assert!(
+                enemy.level >= 3,
+                "Boss enemy '{}' should be at least level 3, got {}",
+                enemy.id,
+                enemy.level
+            );
+        }
+    }
+
+    #[test]
+    fn test_drop_table_chances_valid() {
+        let registry = build_enemy_registry();
+        for (id, enemy) in &registry {
+            for (item_id, chance) in &enemy.drop_table {
+                assert!(
+                    (0.0..=1.0).contains(chance),
+                    "Enemy '{}' has invalid drop chance {} for item '{}'",
+                    id,
+                    chance,
+                    item_id
+                );
+            }
+        }
+    }
+}

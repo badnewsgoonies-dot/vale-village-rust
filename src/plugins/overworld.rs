@@ -7,15 +7,17 @@
 use bevy::prelude::*;
 use rand::Rng;
 
-use super::core_plugin::{GameState, Party};
+use super::core_plugin::{GameData, GameState, Party};
 use super::shop::CurrentShop;
-use super::tower::{TowerState, build_floor_definitions, generate_floor_encounter};
+use super::tower::{
+    TowerBattleActive, TowerState, build_floor_definitions, generate_floor_encounter,
+};
 use super::ui::{ScreenTransition, start_transition};
 use crate::battle::types::{
     BattlePhase, BattleUnit, EndBattleEvent, GrowthRates, StartBattleEvent, UnitSide,
 };
 use crate::components::world::*;
-use crate::data::enemies::{self, EnemyDefinition};
+use crate::data::enemies::{self, EnemyDefinition, get_enemies_by_tier};
 
 // ── Constants ─────────────────────────────────────────────────────────
 const TILE_SIZE: f32 = 32.0;
@@ -69,6 +71,12 @@ struct TowerDoor;
 #[derive(Component, Debug)]
 struct RecruitNpc {
     unit_id: String,
+}
+
+/// Marks an NPC as an innkeeper who can heal the party for gold.
+#[derive(Component, Debug)]
+struct InnKeeper {
+    cost: u32,
 }
 
 // ── Resources ─────────────────────────────────────────────────────────
@@ -369,16 +377,19 @@ fn setup_overworld(
             ],
         }),
     );
-    spawn_npc(
+    spawn_npc_full(
         &mut commands,
         "Innkeeper",
-        GridPosition::new(22, 8),
+        GridPosition::new(22, 5),
         NPC_COLOR,
         vec![
-            "Rest here to recover your strength.".into(),
-            "That'll be 20 gold. ...Just kidding, it's free for now!".into(),
+            "Welcome to the Golden Sun Inn!".into(),
+            "Rest here to restore your party's health.".into(),
+            "Your party has been fully restored!".into(),
         ],
         None,
+        None,
+        Some(InnKeeper { cost: 25 }),
     );
     spawn_npc(
         &mut commands,
@@ -405,6 +416,32 @@ fn setup_overworld(
         None,
     );
 
+    // Flavor NPCs
+    spawn_npc(
+        &mut commands,
+        "Scholar Liam",
+        GridPosition::new(10, 12),
+        NPC_ALT_COLOR,
+        vec![
+            "I've been studying the ancient tower to the north...".into(),
+            "The texts say it was built by Alchemy adepts long ago.".into(),
+            "Each floor tests a different aspect of Psynergy mastery.".into(),
+        ],
+        None,
+    );
+    spawn_npc(
+        &mut commands,
+        "Little Mia",
+        GridPosition::new(21, 13),
+        NPC_COLOR,
+        vec![
+            "When I grow up, I want to be an adept like you!".into(),
+            "I heard there are Djinn hiding all over the world.".into(),
+            "Maybe one day I'll go on an adventure too!".into(),
+        ],
+        None,
+    );
+
     // Recruitment NPCs
     spawn_npc_full(
         &mut commands,
@@ -420,6 +457,7 @@ fn setup_overworld(
         Some(RecruitNpc {
             unit_id: "wind_seer".into(),
         }),
+        None,
     );
     spawn_npc_full(
         &mut commands,
@@ -435,6 +473,7 @@ fn setup_overworld(
         Some(RecruitNpc {
             unit_id: "flame_user".into(),
         }),
+        None,
     );
     spawn_npc_full(
         &mut commands,
@@ -450,6 +489,7 @@ fn setup_overworld(
         Some(RecruitNpc {
             unit_id: "aqua_monk".into(),
         }),
+        None,
     );
 
     // Dialog UI (hidden initially)
@@ -510,9 +550,10 @@ fn spawn_npc(
     dialog: Vec<String>,
     shopkeeper: Option<ShopKeeper>,
 ) {
-    spawn_npc_full(commands, name, pos, color, dialog, shopkeeper, None);
+    spawn_npc_full(commands, name, pos, color, dialog, shopkeeper, None, None);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_npc_full(
     commands: &mut Commands,
     name: &str,
@@ -521,6 +562,7 @@ fn spawn_npc_full(
     dialog: Vec<String>,
     shopkeeper: Option<ShopKeeper>,
     recruit: Option<RecruitNpc>,
+    innkeeper: Option<InnKeeper>,
 ) {
     let mut npc = commands.spawn((
         OverworldRoot,
@@ -539,6 +581,9 @@ fn spawn_npc_full(
     if let Some(recruit) = recruit {
         npc.insert(recruit);
     }
+    if let Some(innkeeper) = innkeeper {
+        npc.insert(innkeeper);
+    }
 }
 
 // ── Systems ───────────────────────────────────────────────────────────
@@ -550,6 +595,8 @@ fn player_movement(
     tilemap: Res<TileMap>,
     dialog: Res<DialogState>,
     tower_state: Res<TowerState>,
+    mut tower_battle_active: ResMut<TowerBattleActive>,
+    party: Res<Party>,
     mut return_position: ResMut<BattleReturnPosition>,
     mut start_battle_events: EventWriter<StartBattleEvent>,
     mut next_game_state: ResMut<NextState<GameState>>,
@@ -624,6 +671,7 @@ fn player_movement(
                             .collect();
                         if !enemy_units.is_empty() {
                             return_position.player_position = Some(*grid_pos);
+                            tower_battle_active.0 = true;
                             start_battle_events.send(StartBattleEvent {
                                 encounter_id: format!("tower-floor-{}", tower_state.current_floor),
                                 enemy_units,
@@ -638,7 +686,8 @@ fn player_movement(
                 if tilemap.is_encounter_zone(nx, ny) {
                     let mut rng = rand::thread_rng();
                     if rng.gen_bool(ENCOUNTER_CHANCE) {
-                        let enemy_units = build_random_encounter(&mut rng);
+                        let avg_level = get_average_party_level(&party);
+                        let enemy_units = build_random_encounter(&mut rng, avg_level);
                         if !enemy_units.is_empty() {
                             return_position.player_position = Some(*grid_pos);
                             start_battle_events.send(StartBattleEvent {
@@ -656,9 +705,87 @@ fn player_movement(
     }
 }
 
-fn build_random_encounter(rng: &mut impl Rng) -> Vec<BattleUnit> {
-    let mut all_enemies: Vec<EnemyDefinition> =
-        enemies::build_enemy_registry().into_values().collect();
+/// Compute the average level of party members from `Party::unit_levels`.
+/// Returns 1 if the map is empty (e.g. at game start).
+fn get_average_party_level(party: &Party) -> u8 {
+    if party.unit_levels.is_empty() {
+        return 1;
+    }
+    let total: u32 = party
+        .unit_levels
+        .values()
+        .map(|(level, _xp)| *level as u32)
+        .sum();
+    let count = party.unit_levels.len() as u32;
+    (total / count).max(1) as u8
+}
+
+fn build_random_encounter(rng: &mut impl Rng, party_level: u8) -> Vec<BattleUnit> {
+    // Gather the tier-appropriate enemy pool based on the party's average level.
+    let mut all_enemies: Vec<EnemyDefinition> = match party_level {
+        1..=4 => get_enemies_by_tier(1),
+        5..=8 => {
+            // 60% tier 1, 40% tier 2
+            let mut pool = get_enemies_by_tier(1);
+            pool.extend(get_enemies_by_tier(2));
+            let picked: Vec<EnemyDefinition> = pool
+                .into_iter()
+                .filter(|e| {
+                    if e.tier == 1 {
+                        rng.gen_bool(0.6)
+                    } else {
+                        rng.gen_bool(0.4)
+                    }
+                })
+                .collect();
+            if picked.is_empty() {
+                // Fallback: at least return tier-1 enemies so encounters aren't empty.
+                get_enemies_by_tier(1)
+            } else {
+                picked
+            }
+        }
+        9..=12 => {
+            // 60% tier 2, 40% tier 3
+            let mut pool = get_enemies_by_tier(2);
+            pool.extend(get_enemies_by_tier(3));
+            let picked: Vec<EnemyDefinition> = pool
+                .into_iter()
+                .filter(|e| {
+                    if e.tier == 2 {
+                        rng.gen_bool(0.6)
+                    } else {
+                        rng.gen_bool(0.4)
+                    }
+                })
+                .collect();
+            if picked.is_empty() {
+                get_enemies_by_tier(2)
+            } else {
+                picked
+            }
+        }
+        _ => {
+            // 13+: 40% tier 2, 60% tier 3
+            let mut pool = get_enemies_by_tier(2);
+            pool.extend(get_enemies_by_tier(3));
+            let picked: Vec<EnemyDefinition> = pool
+                .into_iter()
+                .filter(|e| {
+                    if e.tier == 2 {
+                        rng.gen_bool(0.4)
+                    } else {
+                        rng.gen_bool(0.6)
+                    }
+                })
+                .collect();
+            if picked.is_empty() {
+                get_enemies_by_tier(3)
+            } else {
+                picked
+            }
+        }
+    };
 
     if all_enemies.is_empty() {
         return Vec::new();
@@ -730,12 +857,19 @@ fn camera_follow_player(
     cam_tf.translation = cam_tf.translation.lerp(target, 0.1);
 }
 
+#[allow(clippy::type_complexity)]
 fn player_interact(
     keys: Res<ButtonInput<KeyCode>>,
     mut dialog: ResMut<DialogState>,
     party: Res<Party>,
     player_query: Query<(&GridPosition, &PlayerMovement), With<Player>>,
-    npc_query: Query<(Entity, &GridPosition, &Npc, Option<&RecruitNpc>)>,
+    npc_query: Query<(
+        Entity,
+        &GridPosition,
+        &Npc,
+        Option<&RecruitNpc>,
+        Option<&InnKeeper>,
+    )>,
     mut dialog_box: Query<&mut Visibility, With<DialogBox>>,
     mut dialog_text: Query<&mut Text, With<DialogText>>,
 ) {
@@ -758,16 +892,26 @@ fn player_interact(
     };
     let face = GridPosition::new(player_pos.x + fx, player_pos.y + fy);
 
-    for (npc_entity, npc_pos, npc, recruit) in &npc_query {
+    for (npc_entity, npc_pos, npc, recruit, innkeeper) in &npc_query {
         if *npc_pos == face {
             dialog.active = true;
             dialog.speaker = npc.name.clone();
             dialog.speaker_entity = Some(npc_entity);
             dialog.current_line = 0;
 
+            // If this is an innkeeper NPC, check if the player can afford to rest.
+            if let Some(inn) = innkeeper {
+                if party.gold < inn.cost {
+                    dialog.lines = vec![
+                        format!("You need {} gold to rest here.", inn.cost),
+                        "Come back when you have enough coin.".into(),
+                    ];
+                } else {
+                    dialog.lines = npc.dialog.clone();
+                }
             // If this is a recruit NPC whose unit is already in the party,
             // show the "already recruited" dialog instead.
-            if let Some(recruit) = recruit {
+            } else if let Some(recruit) = recruit {
                 let already_in_party = party.active.contains(&recruit.unit_id)
                     || party.bench.contains(&recruit.unit_id);
                 if already_in_party {
@@ -794,8 +938,10 @@ fn player_interact(
 fn dialog_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut dialog: ResMut<DialogState>,
+    game_data: Res<GameData>,
     shopkeepers: Query<&ShopKeeper>,
     recruit_npcs: Query<&RecruitNpc>,
+    innkeepers: Query<&InnKeeper>,
     mut party: ResMut<Party>,
     mut current_shop: ResMut<CurrentShop>,
     mut next_game_state: ResMut<NextState<GameState>>,
@@ -831,6 +977,31 @@ fn dialog_input(
                             party.active.push(recruit.unit_id.clone());
                         } else {
                             party.bench.push(recruit.unit_id.clone());
+                        }
+                    }
+                }
+
+                // Check for innkeeper interaction — heal the full party
+                if let Ok(inn) = innkeepers.get(npc_entity)
+                    && party.gold >= inn.cost
+                {
+                    party.gold -= inn.cost;
+                    let all_units: Vec<String> = party
+                        .active
+                        .iter()
+                        .chain(party.bench.iter())
+                        .cloned()
+                        .collect();
+                    for unit_id in &all_units {
+                        if let Some(def) = game_data.units.get(unit_id) {
+                            let level = party
+                                .unit_levels
+                                .get(unit_id)
+                                .map(|(lvl, _xp)| *lvl)
+                                .unwrap_or(1);
+                            let max_hp = def.base_hp + def.growth.hp * (level as i32 - 1);
+                            let max_pp = def.base_pp + def.growth.pp * (level as i32 - 1);
+                            party.unit_hp_pp.insert(unit_id.clone(), (max_hp, max_pp));
                         }
                     }
                 }

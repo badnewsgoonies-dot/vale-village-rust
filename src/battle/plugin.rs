@@ -43,6 +43,11 @@ impl Plugin for BattlePlugin {
                 Update,
                 victory_system.run_if(in_state(BattlePhase::Victory)),
             )
-            .add_systems(Update, defeat_system.run_if(in_state(BattlePhase::Defeat)));
+            .add_systems(Update, defeat_system.run_if(in_state(BattlePhase::Defeat)))
+            // Handle flee: when battle phase goes Inactive with fled flag, return to overworld
+            .add_systems(
+                Update,
+                handle_flee_system.run_if(in_state(BattlePhase::Inactive)),
+            );
     }
 }

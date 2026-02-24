@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use rand::Rng;
 
+use super::core_plugin::GameState;
+
 // ---------------------------------------------------------------------------
 // Resources
 // ---------------------------------------------------------------------------
@@ -23,6 +25,15 @@ impl Default for TowerState {
         }
     }
 }
+
+/// Marks whether a tower battle is currently in progress.
+///
+/// When the player enters a battle from inside the tower, this flag is set to
+/// `true`. After the battle resolves and the game transitions back to
+/// `GameState::Overworld`, the `check_tower_victory` system inspects this flag
+/// to decide whether to advance the tower floor.
+#[derive(Debug, Clone, Default, Resource, Reflect)]
+pub struct TowerBattleActive(pub bool);
 
 // ---------------------------------------------------------------------------
 // Floor definitions
@@ -241,6 +252,68 @@ pub fn advance_floor(tower_state: &mut TowerState) -> Option<u8> {
 }
 
 // ---------------------------------------------------------------------------
+// Post-battle progression
+// ---------------------------------------------------------------------------
+
+/// System that runs on `OnEnter(GameState::Overworld)` to handle tower
+/// advancement after a battle victory.
+///
+/// When `TowerBattleActive` is `true`, this system:
+/// 1. Calls `advance_floor` to move to the next floor.
+/// 2. If all 10 floors have been cleared (`current_floor > MAX_FLOOR` or
+///    `advance_floor` returns `None` because floor 10 was the current floor),
+///    logs a completion message and deactivates the tower.
+/// 3. Resets the `TowerBattleActive` flag to `false`.
+pub fn check_tower_victory(
+    mut tower_state: ResMut<TowerState>,
+    mut tower_battle_active: ResMut<TowerBattleActive>,
+) {
+    if !tower_battle_active.0 {
+        return;
+    }
+
+    let result = advance_floor(&mut tower_state);
+
+    match result {
+        Some(new_floor) => {
+            info!("Tower advanced to floor {}/{}", new_floor, MAX_FLOOR);
+        }
+        None => {
+            // current_floor was already at MAX_FLOOR — mark it cleared manually
+            // since advance_floor won't do it when at the cap.
+            if !tower_state.floors_cleared.contains(&MAX_FLOOR) {
+                tower_state.floors_cleared.push(MAX_FLOOR);
+            }
+            info!("Tower of Trials completed!");
+            tower_state.is_active = false;
+        }
+    }
+
+    tower_battle_active.0 = false;
+}
+
+/// Returns a human-readable summary of the tower progress after a floor clear.
+///
+/// - If all 10 floors have been cleared, returns `"Tower of Trials conquered!"`.
+/// - Otherwise, returns `"Floor X/10 cleared"` where X is the most recently
+///   cleared floor.
+#[allow(dead_code)]
+pub fn tower_completion_check(tower_state: &TowerState) -> String {
+    if tower_state.floors_cleared.len() >= MAX_FLOOR as usize {
+        "Tower of Trials conquered!".to_string()
+    } else {
+        let last_cleared = tower_state.floors_cleared.last().copied().unwrap_or(0);
+        format!("Floor {}/{} cleared", last_cleared, MAX_FLOOR)
+    }
+}
+
+/// Reset the tower to its default state (for a new game).
+#[allow(dead_code)]
+pub fn reset_tower(tower_state: &mut TowerState) {
+    *tower_state = TowerState::default();
+}
+
+// ---------------------------------------------------------------------------
 // Plugin
 // ---------------------------------------------------------------------------
 
@@ -248,7 +321,9 @@ pub struct TowerPlugin;
 
 impl Plugin for TowerPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<TowerState>();
+        app.init_resource::<TowerState>()
+            .init_resource::<TowerBattleActive>()
+            .add_systems(OnEnter(GameState::Overworld), check_tower_victory);
     }
 }
 
@@ -366,5 +441,150 @@ mod tests {
         let encounter = generate_floor_encounter(floor10, &mut rng);
         assert_eq!(encounter.len(), 1, "Floor 10 should have only the boss");
         assert_eq!(encounter[0].0, "dark-overlord");
+    }
+
+    // -----------------------------------------------------------------------
+    // Post-battle progression tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_check_tower_victory_advances_floor() {
+        let mut tower_state = TowerState {
+            current_floor: 3,
+            max_floor_reached: 3,
+            is_active: true,
+            floors_cleared: vec![1, 2],
+        };
+        let mut active = TowerBattleActive(true);
+
+        // Simulate the system logic directly (pure-function style)
+        check_tower_victory_logic(&mut tower_state, &mut active);
+
+        assert_eq!(tower_state.current_floor, 4);
+        assert_eq!(tower_state.max_floor_reached, 4);
+        assert!(tower_state.floors_cleared.contains(&3));
+        assert!(
+            tower_state.is_active,
+            "Tower should still be active mid-run"
+        );
+        assert!(!active.0, "TowerBattleActive should be reset to false");
+    }
+
+    #[test]
+    fn test_check_tower_victory_completes_tower() {
+        let mut tower_state = TowerState {
+            current_floor: 10,
+            max_floor_reached: 10,
+            is_active: true,
+            floors_cleared: (1..10).collect(),
+        };
+        let mut active = TowerBattleActive(true);
+
+        check_tower_victory_logic(&mut tower_state, &mut active);
+
+        // advance_floor returns None at floor 10, so current_floor stays 10
+        assert_eq!(tower_state.current_floor, 10);
+        assert!(
+            tower_state.floors_cleared.contains(&10),
+            "Floor 10 should be marked cleared"
+        );
+        assert!(
+            !tower_state.is_active,
+            "Tower should be deactivated on completion"
+        );
+        assert!(!active.0);
+    }
+
+    #[test]
+    fn test_check_tower_victory_noop_when_inactive() {
+        let mut tower_state = TowerState {
+            current_floor: 5,
+            max_floor_reached: 5,
+            is_active: true,
+            floors_cleared: vec![1, 2, 3, 4],
+        };
+        let mut active = TowerBattleActive(false);
+
+        check_tower_victory_logic(&mut tower_state, &mut active);
+
+        // Nothing should change since the flag was false
+        assert_eq!(tower_state.current_floor, 5);
+        assert_eq!(tower_state.floors_cleared.len(), 4);
+        assert!(tower_state.is_active);
+    }
+
+    #[test]
+    fn test_reset_tower() {
+        let mut state = TowerState {
+            current_floor: 7,
+            max_floor_reached: 7,
+            is_active: true,
+            floors_cleared: vec![1, 2, 3, 4, 5, 6],
+        };
+
+        reset_tower(&mut state);
+
+        assert_eq!(state.current_floor, 1);
+        assert_eq!(state.max_floor_reached, 1);
+        assert!(!state.is_active);
+        assert!(state.floors_cleared.is_empty());
+    }
+
+    #[test]
+    fn test_tower_completion_check_mid_tower() {
+        let state = TowerState {
+            current_floor: 4,
+            max_floor_reached: 4,
+            is_active: true,
+            floors_cleared: vec![1, 2, 3],
+        };
+
+        let msg = tower_completion_check(&state);
+        assert_eq!(msg, "Floor 3/10 cleared");
+    }
+
+    #[test]
+    fn test_tower_completion_check_all_cleared() {
+        let state = TowerState {
+            current_floor: 10,
+            max_floor_reached: 10,
+            is_active: false,
+            floors_cleared: (1..=10).collect(),
+        };
+
+        let msg = tower_completion_check(&state);
+        assert_eq!(msg, "Tower of Trials conquered!");
+    }
+
+    #[test]
+    fn test_tower_completion_check_no_floors_cleared() {
+        let state = TowerState::default();
+        let msg = tower_completion_check(&state);
+        assert_eq!(msg, "Floor 0/10 cleared");
+    }
+
+    /// Helper that mirrors the `check_tower_victory` system logic without
+    /// requiring a full Bevy ECS world.
+    fn check_tower_victory_logic(
+        tower_state: &mut TowerState,
+        tower_battle_active: &mut TowerBattleActive,
+    ) {
+        if !tower_battle_active.0 {
+            return;
+        }
+
+        let result = advance_floor(tower_state);
+
+        match result {
+            Some(_new_floor) => {}
+            None => {
+                if !tower_state.floors_cleared.contains(&MAX_FLOOR) {
+                    tower_state.floors_cleared.push(MAX_FLOOR);
+                }
+                tower_state.is_active = false;
+            }
+        }
+
+        tower_battle_active.0 = false;
     }
 }

@@ -11,7 +11,7 @@ use rand::rngs::StdRng;
 use crate::battle::{ai, damage, djinn, rewards, status, turn_order, types::*};
 use crate::components::battle::PartyCombatant;
 use crate::data::items::ItemCategory;
-use crate::plugins::core_plugin::{GameData, Party};
+use crate::plugins::core_plugin::{GameData, GameState, Party};
 
 // ---------------------------------------------------------------------------
 // Resources
@@ -1368,6 +1368,19 @@ pub fn defeat_system(
         rewards: None,
         level_ups: vec![],
     });
+}
+
+/// Detects a successful flee (battle_state.fled == true) after the battle phase
+/// has transitioned to Inactive, and transitions the game state back to the
+/// overworld so the player is not stranded on the battle screen.
+pub fn handle_flee_system(
+    mut battle_state: ResMut<BattleStateRes>,
+    mut next_game_state: ResMut<NextState<GameState>>,
+) {
+    if battle_state.fled {
+        battle_state.fled = false;
+        next_game_state.set(GameState::Overworld);
+    }
 }
 
 /// Write BattleUnit level/XP and HP/PP back to the Party resource for persistence.
