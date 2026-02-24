@@ -81,6 +81,7 @@ pub struct FadeOverlay;
 
 // ── Tutorial / Onboarding system ──────────────────────────────────────
 
+#[allow(dead_code)]
 /// Marker component for tutorial overlay tip UI entities.
 #[derive(Component)]
 struct TutorialTip {
@@ -133,6 +134,7 @@ struct PendingTutorialTip {
 
 /// Static definitions for all tutorial tips.
 struct TutorialTipDef {
+#[allow(dead_code)]
     key: &'static str,
     message: &'static str,
     #[allow(dead_code)]
@@ -141,6 +143,7 @@ struct TutorialTipDef {
 }
 
 const TUTORIAL_TIPS: &[TutorialTipDef] = &[
+#[allow(dead_code)]
     TutorialTipDef {
         key: "welcome",
         message: "Welcome to Vale Village! Use arrow keys to move. Talk to NPCs with Enter.",
@@ -174,6 +177,7 @@ const TUTORIAL_TIPS: &[TutorialTipDef] = &[
 ];
 
 /// Root marker for the tutorial tip overlay UI.
+#[allow(dead_code)]
 #[derive(Component)]
 struct TutorialTipRoot;
 

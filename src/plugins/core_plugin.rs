@@ -9,6 +9,7 @@ use crate::data::{
     items::{EquipmentDefinition, ItemDefinition},
     units::UnitDefinition,
 };
+#[allow(unused_imports)]
 use crate::components::stats::Element;
 
 // ---------------------------------------------------------------------------

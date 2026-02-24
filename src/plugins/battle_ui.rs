@@ -5,6 +5,7 @@
 //! lightweight UI-side caches and renders from those caches.
 
 use bevy::prelude::*;
+use std::collections::HashMap;
 
 use super::core_plugin::{GameData, GameState, Party};
 use super::save::SaveSystem;
@@ -131,7 +132,18 @@ struct SubMenuItem {
     index: usize,
 }
 
+/// Marker component for the battle background sprite, used for cleanup.
+#[derive(Component)]
+struct BattleBackground;
+
 // ── Resources ─────────────────────────────────────────────────────────
+
+/// Maps environment names (e.g., "cave", "overworld") to loaded background
+/// image handles from `assets/backgrounds/gs1/`.
+#[derive(Resource, Default)]
+pub struct BattleBackgroundHandles {
+    pub backgrounds: HashMap<String, Handle<Image>>,
+}
 
 const BATTLE_LOG_MAX_MESSAGES: usize = 50;
 
@@ -238,6 +250,7 @@ pub struct BattleUiPlugin;
 impl Plugin for BattleUiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BattleResultCache>()
+            .add_systems(OnEnter(GameState::Loading), load_battle_backgrounds)
             .add_systems(OnEnter(GameState::Battle), setup_battle_ui)
             .add_systems(
                 Update,
@@ -332,13 +345,107 @@ fn item_effect_summary(def: &crate::data::items::ItemDefinition) -> String {
     }
 }
 
+// ── Background loading ────────────────────────────────────────────────
+
+/// Returns the mapping from environment names to background asset paths
+/// under `assets/backgrounds/gs1/`.
+fn background_mappings() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("cave", "backgrounds/gs1/Cave.gif"),
+        ("overworld", "backgrounds/gs1/Overworld.gif"),
+        ("desert", "backgrounds/gs1/Desert.gif"),
+        ("forest", "backgrounds/gs1/Kolima_Forest.gif"),
+        ("lighthouse", "backgrounds/gs1/Mercury_Lighthouse.gif"),
+        ("tower", "backgrounds/gs1/Tunnel_Ruins.gif"),
+        ("volcano", "backgrounds/gs1/Sol_Sanctum.gif"),
+        ("sky", "backgrounds/gs1/Sky.gif"),
+        ("ship", "backgrounds/gs1/Tolbi_Bound_Ship_Abovedeck.gif"),
+        ("vale", "backgrounds/gs1/Vale.gif"),
+        ("world-map", "backgrounds/gs1/World_Map.gif"),
+        ("world-map-forest", "backgrounds/gs1/World_Map_Forest.gif"),
+        ("world-map-shore", "backgrounds/gs1/World_Map_Shore.gif"),
+        ("world-map-snow", "backgrounds/gs1/World_Map_Snow.gif"),
+    ]
+}
+
+/// Loads battle background images from `assets/backgrounds/gs1/` during the
+/// Loading state and stores the handles in `BattleBackgroundHandles`.
+fn load_battle_backgrounds(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let mut handles = BattleBackgroundHandles::default();
+
+    for (name, path) in background_mappings() {
+        let handle: Handle<Image> = asset_server.load(path);
+        handles.backgrounds.insert(name.into(), handle);
+    }
+
+    info!(
+        "Loaded {} battle background handles",
+        handles.backgrounds.len()
+    );
+
+    commands.insert_resource(handles);
+}
+
+/// Determines which background environment to use based on the battle
+/// encounter ID. Falls back to "overworld" when no specific match is found.
+fn resolve_background_env(encounter_id: &str) -> &'static str {
+    if encounter_id.starts_with("tower") {
+        "tower"
+    } else if encounter_id.contains("cave") {
+        "cave"
+    } else if encounter_id.contains("desert") {
+        "desert"
+    } else if encounter_id.contains("forest") {
+        "forest"
+    } else if encounter_id.contains("lighthouse") {
+        "lighthouse"
+    } else if encounter_id.contains("volcano") {
+        "volcano"
+    } else {
+        "overworld"
+    }
+}
+
 // ── Setup ─────────────────────────────────────────────────────────────
 
-fn setup_battle_ui(mut commands: Commands) {
+fn setup_battle_ui(
+    mut commands: Commands,
+    bg_handles: Option<Res<BattleBackgroundHandles>>,
+    battle_state: Option<Res<BattleStateRes>>,
+) {
     commands.insert_resource(BattleUiState::default());
     commands.insert_resource(BattleEnemies::default());
     commands.insert_resource(BattleParty::default());
     commands.insert_resource(BattleLog::default());
+
+    // ── Battle background sprite ─────────────────────────────
+    let env_key = battle_state
+        .as_ref()
+        .map(|bs| resolve_background_env(&bs.encounter_id))
+        .unwrap_or("overworld");
+
+    let bg_image = bg_handles
+        .as_ref()
+        .and_then(|h| h.backgrounds.get(env_key).cloned());
+
+    if let Some(handle) = bg_image {
+        commands.spawn((
+            BattleBackground,
+            Sprite {
+                image: handle,
+                custom_size: Some(Vec2::new(960.0, 540.0)),
+                ..default()
+            },
+            Transform::from_xyz(0.0, 0.0, -10.0),
+        ));
+    } else {
+        // Fallback: a solid-color rectangle when no background image is available
+        commands.spawn((
+            BattleBackground,
+            Sprite::from_color(BATTLE_BG, Vec2::new(960.0, 540.0)),
+            Transform::from_xyz(0.0, 0.0, -10.0),
+        ));
+    }
 
     commands
         .spawn((
@@ -349,7 +456,7 @@ fn setup_battle_ui(mut commands: Commands) {
                 flex_direction: FlexDirection::Column,
                 ..default()
             },
-            BackgroundColor(BATTLE_BG),
+            BackgroundColor(Color::srgba(0.06, 0.06, 0.14, 0.65)),
             GlobalZIndex(10),
         ))
         .with_children(|root| {
@@ -2093,8 +2200,15 @@ fn update_battle_log_display(
     **text = battle_log.messages.join("\n");
 }
 
-fn cleanup_battle(mut commands: Commands, query: Query<Entity, With<BattleRoot>>) {
+fn cleanup_battle(
+    mut commands: Commands,
+    query: Query<Entity, With<BattleRoot>>,
+    bg_query: Query<Entity, With<BattleBackground>>,
+) {
     for entity in &query {
+        commands.entity(entity).despawn();
+    }
+    for entity in &bg_query {
         commands.entity(entity).despawn();
     }
     commands.remove_resource::<BattleUiState>();
