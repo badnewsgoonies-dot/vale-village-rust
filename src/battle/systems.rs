@@ -9,7 +9,8 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use crate::battle::{ai, damage, djinn, rewards, status, turn_order, types::*};
-use crate::plugins::core_plugin::GameData;
+use crate::data::items::ItemCategory;
+use crate::plugins::core_plugin::{GameData, Party};
 
 // ---------------------------------------------------------------------------
 // Resources
@@ -86,6 +87,7 @@ pub fn command_select_system(
     mut next_phase: ResMut<NextState<BattlePhase>>,
     units: Query<&BattleUnit>,
     game_data: Res<GameData>,
+    party: Res<Party>,
 ) {
     let player_units: Vec<&BattleUnit> = units
         .iter()
@@ -246,6 +248,86 @@ pub fn command_select_system(
             if keyboard.just_pressed(KeyCode::Escape) {
                 cmd_state.menu = CommandMenu::TopLevel;
                 cmd_state.cursor_index = 0;
+                return;
+            }
+
+            // Build a deduplicated list of consumable items from party inventory.
+            let mut seen = std::collections::HashSet::new();
+            let consumable_ids: Vec<String> = party
+                .inventory
+                .iter()
+                .filter(|id| {
+                    game_data
+                        .items
+                        .get(*id)
+                        .is_some_and(|def| def.category == ItemCategory::Consumable)
+                })
+                .filter(|id| seen.insert((*id).clone()))
+                .cloned()
+                .collect();
+
+            if consumable_ids.is_empty() {
+                cmd_state.menu = CommandMenu::TopLevel;
+                cmd_state.cursor_index = 0;
+                return;
+            }
+
+            if keyboard.just_pressed(KeyCode::ArrowUp) && cmd_state.cursor_index > 0 {
+                cmd_state.cursor_index -= 1;
+            }
+            if keyboard.just_pressed(KeyCode::ArrowDown)
+                && cmd_state.cursor_index < consumable_ids.len() - 1
+            {
+                cmd_state.cursor_index += 1;
+            }
+            if keyboard.just_pressed(KeyCode::Enter) {
+                if let Some(item_id) = consumable_ids.get(cmd_state.cursor_index) {
+                    if let Some(item_def) = game_data.items.get(item_id) {
+                        let effect = &item_def.effect;
+                        let unit = player_units[cmd_state.selecting_unit_index];
+
+                        let is_offensive = effect.damage_amount > 0;
+                        let is_revive = effect.revive;
+
+                        if is_offensive {
+                            // Target first alive enemy
+                            let target = units
+                                .iter()
+                                .find(|u| u.side == UnitSide::Enemy && u.is_alive());
+                            if let Some(target) = target {
+                                set_pending_action(
+                                    &mut cmd_state,
+                                    BattleAction::Item {
+                                        item_id: item_id.clone(),
+                                        target_id: target.id,
+                                    },
+                                );
+                            }
+                        } else if is_revive {
+                            // Target first KO'd ally, or fall back to self
+                            let ko_ally = units
+                                .iter()
+                                .find(|u| u.side == UnitSide::Player && u.is_ko());
+                            let target_id = ko_ally.map(|u| u.id).unwrap_or(unit.id);
+                            set_pending_action(
+                                &mut cmd_state,
+                                BattleAction::Item {
+                                    item_id: item_id.clone(),
+                                    target_id,
+                                },
+                            );
+                        } else {
+                            // Healing / PP / status removal: target the selecting unit
+                            set_pending_action(
+                                &mut cmd_state,
+                                BattleAction::Item {
+                                    item_id: item_id.clone(),
+                                    target_id: unit.id,
+                                },
+                            );
+                        }
+                    }
+                }
             }
         }
     }
@@ -305,6 +387,7 @@ pub fn resolution_system(
     mut ko_events: EventWriter<UnitKoEvent>,
     mut djinn_state: ResMut<DjinnBattleRes>,
     game_data: Res<GameData>,
+    mut party: ResMut<Party>,
 ) {
     let idx = battle_state.current_actor_index;
 
@@ -459,7 +542,82 @@ pub fn resolution_system(
                 }
             }
         }
-        BattleAction::Item { .. } => { /* stub */ }
+        BattleAction::Item { item_id, target_id } => {
+            if let Some(item_def) = game_data.items.get(&item_id).cloned() {
+                // Remove one instance from party inventory
+                if let Some(pos) = party.inventory.iter().position(|id| id == &item_id) {
+                    party.inventory.remove(pos);
+                }
+
+                let effect = &item_def.effect;
+
+                // Apply healing / PP restoration
+                if effect.hp_restore > 0 || effect.pp_restore > 0 {
+                    if let Some(mut target) = units.iter_mut().find(|u| u.id == target_id) {
+                        if effect.revive && target.is_ko() {
+                            target.hp = effect.hp_restore.min(target.max_hp);
+                            heal_events.send(HealEvent {
+                                source_id: actor_id,
+                                target_id,
+                                amount: target.hp,
+                                revived: true,
+                            });
+                        } else if target.is_alive() {
+                            let old_hp = target.hp;
+                            target.hp = (target.hp + effect.hp_restore).min(target.max_hp);
+                            target.pp = (target.pp + effect.pp_restore).min(target.max_pp);
+                            let healed = target.hp - old_hp;
+                            heal_events.send(HealEvent {
+                                source_id: actor_id,
+                                target_id,
+                                amount: healed,
+                                revived: false,
+                            });
+                        }
+                    }
+                }
+
+                // Apply status removal
+                if !effect.removes_status.is_empty() {
+                    if let Some(mut target) = units.iter_mut().find(|u| u.id == target_id) {
+                        target.status_effects.retain(|se| {
+                            let kind_str = match se.kind() {
+                                StatusKind::Poison => "poison",
+                                StatusKind::Burn => "burn",
+                                StatusKind::Freeze => "freeze",
+                                StatusKind::Paralyze => "paralyze",
+                                StatusKind::Stun => "stun",
+                                StatusKind::Blind => "blind",
+                                _ => return true,
+                            };
+                            !effect.removes_status.iter().any(|r| r == kind_str)
+                        });
+                    }
+                }
+
+                // Apply damage (offensive items)
+                if effect.damage_amount > 0 {
+                    if let Some(mut target) = units.iter_mut().find(|u| u.id == target_id) {
+                        let result =
+                            damage::apply_damage_with_shields(&mut target, effect.damage_amount);
+                        damage_events.send(DamageEvent {
+                            attacker_id: actor_id,
+                            target_id,
+                            damage: result.actual_damage,
+                            element: effect.damage_element,
+                            was_blocked: result.was_blocked,
+                        });
+                        if target.is_ko() {
+                            ko_events.send(UnitKoEvent {
+                                unit_id: target.id,
+                                unit_name: target.name.clone(),
+                                side: target.side,
+                            });
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
