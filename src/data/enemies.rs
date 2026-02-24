@@ -1552,7 +1552,7 @@ mod tests {
     fn test_no_duplicate_enemy_ids() {
         let registry = build_enemy_registry();
         let mut seen = std::collections::HashSet::new();
-        for (id, _) in &registry {
+        for id in registry.keys() {
             assert!(
                 seen.insert(id.clone()),
                 "Duplicate enemy ID found: '{}'",
