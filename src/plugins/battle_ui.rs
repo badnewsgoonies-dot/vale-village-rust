@@ -8,10 +8,11 @@ use bevy::prelude::*;
 
 use super::core_plugin::{GameData, GameState, Party};
 use super::save::SaveSystem;
+use super::sprites::SpriteHandles;
 use crate::battle::types::{
     BattleAction, BattlePhase, BattleRewards, BattleStateRes, BattleUnit, CommandMenu,
-    CommandSelectState, DamageEvent, EndBattleEvent, HealEvent, LevelUpEvent, UnitKoEvent,
-    UnitSide,
+    CommandSelectState, DamageEvent, EndBattleEvent, HealEvent, LevelUpEvent, StatusAppliedEvent,
+    UnitKoEvent, UnitSide,
 };
 use crate::components::stats::Element;
 use crate::data::items::ItemCategory;
@@ -132,7 +133,7 @@ struct SubMenuItem {
 
 // ── Resources ─────────────────────────────────────────────────────────
 
-const BATTLE_LOG_MAX_MESSAGES: usize = 8;
+const BATTLE_LOG_MAX_MESSAGES: usize = 50;
 
 #[derive(Resource, Default)]
 struct BattleLog {
@@ -258,6 +259,7 @@ impl Plugin for BattleUiPlugin {
                     log_damage_events,
                     log_heal_events,
                     log_ko_events,
+                    log_status_events,
                     update_battle_log_display,
                 )
                     .chain()
@@ -285,6 +287,12 @@ fn element_color(el: &Element) -> Color {
         Element::Jupiter => Color::srgb(0.5, 0.3, 0.7),
         Element::Neutral => Color::srgb(0.4, 0.4, 0.4),
     }
+}
+
+/// Convert a display name (e.g., "War Mage", "Mercury Slime") into a
+/// sprite lookup key (e.g., "war-mage", "mercury-slime").
+fn sprite_key_from_name(name: &str) -> String {
+    name.to_lowercase().replace(' ', "-")
 }
 
 /// Build the element tag string for a djinn (e.g., "[Venus]").
@@ -1976,15 +1984,10 @@ fn log_damage_events(
         let attacker = lookup_unit_name(&units, event.attacker_id);
         let target = lookup_unit_name(&units, event.target_id);
 
-        let message = if event.damage == 0 {
-            format!("{attacker}'s attack missed {target}!")
-        } else if event.was_blocked {
-            format!(
-                "{attacker} lands a critical hit on {target} for {} damage!",
-                event.damage
-            )
+        let message = if event.damage == 0 || event.was_blocked {
+            format!("{attacker}'s attack was blocked!")
         } else {
-            format!("{attacker} deals {} damage to {target}!", event.damage)
+            format!("{attacker} deals {} to {target}!", event.damage)
         };
 
         battle_log.push(message);
@@ -2000,19 +2003,39 @@ fn log_heal_events(
         let source = lookup_unit_name(&units, event.source_id);
         let target = lookup_unit_name(&units, event.target_id);
 
-        let message = if event.revived {
-            format!("{source} revives {target}!")
-        } else {
-            format!("{source} heals {target} for {} HP!", event.amount)
-        };
-
-        battle_log.push(message);
+        if event.revived {
+            battle_log.push(format!("{target} was revived!"));
+        }
+        battle_log.push(format!("{source} heals {target} for {} HP!", event.amount));
     }
 }
 
 fn log_ko_events(mut ko_events: EventReader<UnitKoEvent>, mut battle_log: ResMut<BattleLog>) {
     for event in ko_events.read() {
-        battle_log.push(format!("{} has been defeated!", event.unit_name));
+        let message = match event.side {
+            UnitSide::Enemy => format!("{} was defeated!", event.unit_name),
+            UnitSide::Player => format!("{} fell in battle!", event.unit_name),
+        };
+        battle_log.push(message);
+    }
+}
+
+fn log_status_events(
+    mut status_events: EventReader<StatusAppliedEvent>,
+    mut battle_log: ResMut<BattleLog>,
+    units: Query<&BattleUnit>,
+) {
+    for event in status_events.read() {
+        let target = lookup_unit_name(&units, event.target_id);
+
+        let message = if event.was_immune {
+            format!("{target} resisted the status!")
+        } else {
+            let status_name = event.status.display_name();
+            format!("{target} is now {status_name}!")
+        };
+
+        battle_log.push(message);
     }
 }
 

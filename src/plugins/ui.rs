@@ -47,6 +47,14 @@ struct PauseMenuFeedbackText;
 struct MainMenuFeedbackText;
 
 #[derive(Component)]
+struct SaveSlotMenuRoot;
+
+#[derive(Component)]
+struct SaveSlotItem {
+    index: usize,
+}
+
+#[derive(Component)]
 struct SettingsRoot;
 
 #[derive(Component)]
@@ -107,6 +115,33 @@ impl Default for MainMenuFeedback {
         Self {
             message: None,
             timer: Timer::from_seconds(1.5, TimerMode::Once),
+        }
+    }
+}
+
+/// Whether the save-slot sub-menu is in Save or Load mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SaveSlotMode {
+    Save,
+    Load,
+}
+
+/// Resource tracking the save-slot selection sub-menu state.
+#[derive(Resource, Debug)]
+struct SaveSlotMenu {
+    visible: bool,
+    mode: SaveSlotMode,
+    cursor: usize,
+    cooldown: Timer,
+}
+
+impl SaveSlotMenu {
+    fn new(mode: SaveSlotMode) -> Self {
+        Self {
+            visible: true,
+            mode,
+            cursor: 0,
+            cooldown: Timer::from_seconds(0.15, TimerMode::Once),
         }
     }
 }
@@ -186,7 +221,12 @@ impl Plugin for UiPlugin {
             )
             .add_systems(
                 OnExit(GameState::Paused),
-                (cleanup::<PauseMenuRoot>, clear_pause_menu_feedback),
+                (
+                    cleanup::<PauseMenuRoot>,
+                    cleanup::<SaveSlotMenuRoot>,
+                    clear_pause_menu_feedback,
+                    clear_save_slot_menu,
+                ),
             )
             // Settings
             .add_systems(OnEnter(GameState::Settings), setup_settings)
@@ -633,6 +673,15 @@ fn pause_menu_input(world: &mut World) {
         return;
     }
 
+    // If the save-slot sub-menu is open, delegate to its handler instead.
+    let slot_menu_visible = world
+        .get_resource::<SaveSlotMenu>()
+        .is_some_and(|m| m.visible);
+    if slot_menu_visible {
+        save_slot_menu_input(world);
+        return;
+    }
+
     let delta = world.resource::<Time>().delta();
     let (up_pressed, down_pressed, escape_pressed, confirm_pressed) = {
         let keys = world.resource::<ButtonInput<KeyCode>>();
@@ -693,36 +742,12 @@ fn pause_menu_input(world: &mut World) {
             start_transition(&mut transition, GameState::Overworld);
         }
         1 => {
-            let save_data = SaveData::from_game_state(world);
-            let result = {
-                let save_system = world.resource::<SaveSystem>();
-                save_system.save(1, &save_data)
-            };
-
-            match result {
-                Ok(()) => set_pause_menu_feedback(world, "Saved!"),
-                Err(error) => {
-                    warn!("Failed to save slot 1: {}", error);
-                    set_pause_menu_feedback(world, format!("Save failed: {}", error));
-                }
-            }
+            // Open save-slot sub-menu in Save mode
+            open_save_slot_menu(world, SaveSlotMode::Save);
         }
         2 => {
-            let result = {
-                let save_system = world.resource::<SaveSystem>();
-                save_system.load(1)
-            };
-
-            match result {
-                Ok(save_data) => {
-                    save_data.apply_to_game(world);
-                    set_pause_menu_feedback(world, "Loaded!");
-                }
-                Err(error) => {
-                    warn!("Failed to load slot 1: {}", error);
-                    set_pause_menu_feedback(world, format!("Load failed: {}", error));
-                }
-            }
+            // Open save-slot sub-menu in Load mode
+            open_save_slot_menu(world, SaveSlotMode::Load);
         }
         3 => {
             let mut transition = world.resource_mut::<ScreenTransition>();
@@ -733,6 +758,234 @@ fn pause_menu_input(world: &mut World) {
             start_transition(&mut transition, GameState::MainMenu);
         }
         _ => {}
+    }
+}
+
+/// Number of save slots shown in the sub-menu.
+const SAVE_SLOT_COUNT: usize = 3;
+
+/// Build a display label for a save slot.
+/// Returns e.g. "Slot 1: Level 5, Gold 320" or "Slot 1: [Empty]".
+fn save_slot_label(slot_index: usize, save_system: &SaveSystem) -> String {
+    let display_number = slot_index + 1;
+    match save_system.load(slot_index) {
+        Ok(data) => {
+            // Determine the highest level among party members for display.
+            let max_level = data.party_data.iter().map(|m| m.level).max().unwrap_or(1);
+            format!(
+                "Slot {}: Level {}, Gold {}",
+                display_number, max_level, data.gold
+            )
+        }
+        Err(_) => format!("Slot {}: [Empty]", display_number),
+    }
+}
+
+/// Spawn the save-slot selection sub-menu UI and insert the tracking resource.
+fn open_save_slot_menu(world: &mut World, mode: SaveSlotMode) {
+    // Build slot labels before spawning (needs SaveSystem borrow).
+    let labels: Vec<String> = {
+        let save_system = world.resource::<SaveSystem>();
+        (0..SAVE_SLOT_COUNT)
+            .map(|i| save_slot_label(i, save_system))
+            .collect()
+    };
+
+    let title = match mode {
+        SaveSlotMode::Save => "SAVE GAME",
+        SaveSlotMode::Load => "LOAD GAME",
+    };
+
+    world.insert_resource(SaveSlotMenu::new(mode));
+
+    // Spawn the UI overlay.
+    let mut root_entity = world.spawn((
+        SaveSlotMenuRoot,
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.4)),
+        GlobalZIndex(60),
+    ));
+
+    root_entity.with_children(|parent| {
+        parent
+            .spawn((
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    padding: UiRect::all(Val::Px(24.0)),
+                    border: UiRect::all(Val::Px(2.0)),
+                    min_width: Val::Px(340.0),
+                    ..default()
+                },
+                BackgroundColor(MENU_BG),
+                BorderColor(GOLD),
+            ))
+            .with_children(|menu| {
+                // Title
+                menu.spawn((
+                    Text::new(title.to_string()),
+                    TextFont {
+                        font_size: 28.0,
+                        ..default()
+                    },
+                    TextColor(BRIGHT_GOLD),
+                    Node {
+                        margin: UiRect::bottom(Val::Px(16.0)),
+                        ..default()
+                    },
+                ));
+
+                // Slot entries
+                for (i, label) in labels.iter().enumerate() {
+                    menu.spawn((
+                        SaveSlotItem { index: i },
+                        Text::new(label.clone()),
+                        TextFont {
+                            font_size: 22.0,
+                            ..default()
+                        },
+                        TextColor(if i == 0 { BRIGHT_GOLD } else { DIM_TEXT }),
+                        Node {
+                            margin: UiRect::vertical(Val::Px(6.0)),
+                            ..default()
+                        },
+                    ));
+                }
+
+                // Hint
+                menu.spawn((
+                    Text::new("Enter: Select  |  Esc: Back"),
+                    TextFont {
+                        font_size: 14.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgba(0.5, 0.5, 0.5, 0.7)),
+                    Node {
+                        margin: UiRect::top(Val::Px(14.0)),
+                        ..default()
+                    },
+                ));
+            });
+    });
+}
+
+/// Despawn the save-slot sub-menu UI and remove the tracking resource.
+fn close_save_slot_menu(world: &mut World) {
+    // Despawn all SaveSlotMenuRoot entities and their children.
+    let roots: Vec<Entity> = {
+        let mut query = world.query_filtered::<Entity, With<SaveSlotMenuRoot>>();
+        query.iter(world).collect()
+    };
+    for entity in roots {
+        world.entity_mut(entity).despawn();
+    }
+    world.remove_resource::<SaveSlotMenu>();
+}
+
+/// Exclusive-system handler for the save-slot sub-menu input.
+fn save_slot_menu_input(world: &mut World) {
+    let delta = world.resource::<Time>().delta();
+    let (up_pressed, down_pressed, escape_pressed, confirm_pressed) = {
+        let keys = world.resource::<ButtonInput<KeyCode>>();
+        (
+            keys.just_pressed(KeyCode::ArrowUp) || keys.just_pressed(KeyCode::KeyW),
+            keys.just_pressed(KeyCode::ArrowDown) || keys.just_pressed(KeyCode::KeyS),
+            keys.just_pressed(KeyCode::Escape),
+            keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space),
+        )
+    };
+
+    // Navigate cursor
+    {
+        let mut slot_menu = world.resource_mut::<SaveSlotMenu>();
+        slot_menu.cooldown.tick(delta);
+
+        if slot_menu.cooldown.finished() {
+            if up_pressed {
+                slot_menu.cursor = if slot_menu.cursor == 0 {
+                    SAVE_SLOT_COUNT - 1
+                } else {
+                    slot_menu.cursor - 1
+                };
+                slot_menu.cooldown.reset();
+            }
+            if down_pressed {
+                slot_menu.cursor = (slot_menu.cursor + 1) % SAVE_SLOT_COUNT;
+                slot_menu.cooldown.reset();
+            }
+        }
+    }
+
+    let cursor_pos = world.resource::<SaveSlotMenu>().cursor;
+
+    // Highlight the selected slot
+    {
+        let mut items = world.query::<(&SaveSlotItem, &mut TextColor)>();
+        for (item, mut color) in items.iter_mut(world) {
+            color.0 = if item.index == cursor_pos {
+                BRIGHT_GOLD
+            } else {
+                DIM_TEXT
+            };
+        }
+    }
+
+    // Escape: close sub-menu, return to pause menu
+    if escape_pressed {
+        close_save_slot_menu(world);
+        return;
+    }
+
+    if !confirm_pressed {
+        return;
+    }
+
+    // Perform the save or load action on the selected slot.
+    let mode = world.resource::<SaveSlotMenu>().mode;
+    let slot = cursor_pos; // 0-indexed
+
+    match mode {
+        SaveSlotMode::Save => {
+            let save_data = SaveData::from_game_state(world);
+            let result = {
+                let save_system = world.resource::<SaveSystem>();
+                save_system.save(slot, &save_data)
+            };
+            close_save_slot_menu(world);
+            match result {
+                Ok(()) => {
+                    set_pause_menu_feedback(world, format!("Game saved to Slot {}!", slot + 1));
+                }
+                Err(error) => {
+                    warn!("Failed to save slot {}: {}", slot, error);
+                    set_pause_menu_feedback(world, format!("Save failed: {}", error));
+                }
+            }
+        }
+        SaveSlotMode::Load => {
+            let result = {
+                let save_system = world.resource::<SaveSystem>();
+                save_system.load(slot)
+            };
+            close_save_slot_menu(world);
+            match result {
+                Ok(save_data) => {
+                    save_data.apply_to_game(world);
+                    set_pause_menu_feedback(world, format!("Loaded from Slot {}!", slot + 1));
+                }
+                Err(_error) => {
+                    warn!("No save in slot {}: {}", slot, _error);
+                    set_pause_menu_feedback(world, format!("No save in Slot {}", slot + 1));
+                }
+            }
+        }
     }
 }
 
@@ -777,6 +1030,10 @@ fn pause_menu_feedback_update(
 
 fn clear_pause_menu_feedback(mut commands: Commands) {
     commands.remove_resource::<PauseMenuFeedback>();
+}
+
+fn clear_save_slot_menu(mut commands: Commands) {
+    commands.remove_resource::<SaveSlotMenu>();
 }
 
 // ══════════════════════════════════════════════════════════════════════

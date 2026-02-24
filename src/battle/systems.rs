@@ -11,7 +11,7 @@ use rand::rngs::StdRng;
 use crate::battle::{ai, damage, djinn, rewards, status, turn_order, types::*};
 use crate::components::battle::PartyCombatant;
 use crate::data::items::ItemCategory;
-use crate::plugins::core_plugin::{GameData, GameState, Party, story};
+use crate::plugins::core_plugin::{DifficultySettings, GameData, GameState, Party, story};
 
 // ---------------------------------------------------------------------------
 // Resources
@@ -252,6 +252,7 @@ pub fn battle_enter_system(
     party_query: Query<&BattleUnit>,
     game_data: Res<GameData>,
     mut bestiary: Option<ResMut<crate::plugins::core_plugin::Bestiary>>,
+    difficulty: Option<Res<DifficultySettings>>,
 ) {
     for event in start_events.read() {
         *battle_state = BattleStateRes {
@@ -260,8 +261,20 @@ pub fn battle_enter_system(
             ..Default::default()
         };
 
+        // Scale enemy stats by difficulty multiplier
+        let stat_mult = difficulty
+            .as_ref()
+            .map(|d| d.enemy_stat_multiplier())
+            .unwrap_or(1.0);
         for enemy in &event.enemy_units {
-            commands.spawn(enemy.clone());
+            let mut scaled = enemy.clone();
+            if scaled.side == UnitSide::Enemy {
+                scaled.hp = (scaled.hp as f32 * stat_mult) as i32;
+                scaled.max_hp = (scaled.max_hp as f32 * stat_mult) as i32;
+                scaled.atk = (scaled.atk as f32 * stat_mult) as i32;
+                scaled.def = (scaled.def as f32 * stat_mult) as i32;
+            }
+            commands.spawn(scaled);
         }
 
         // Record enemy encounters in the bestiary
@@ -618,6 +631,7 @@ pub fn resolution_system(
     mut djinn_state: ResMut<DjinnBattleRes>,
     game_data: Res<GameData>,
     mut party: ResMut<Party>,
+    difficulty: Option<Res<DifficultySettings>>,
 ) {
     let idx = battle_state.current_actor_index;
 
@@ -721,7 +735,12 @@ pub fn resolution_system(
         BattleAction::Flee => {
             let avg_player_spd = avg_speed(&units, UnitSide::Player);
             let avg_enemy_spd = avg_speed(&units, UnitSide::Enemy);
-            let chance = rewards::flee_chance(avg_player_spd, avg_enemy_spd);
+            let base_chance = rewards::flee_chance(avg_player_spd, avg_enemy_spd);
+            let flee_bonus = difficulty
+                .as_ref()
+                .map(|d| d.flee_chance_bonus())
+                .unwrap_or(0.0);
+            let chance = (base_chance + flee_bonus).clamp(0.10, 0.90);
             if rng.0.r#gen::<f32>() < chance {
                 battle_state.fled = true;
                 next_phase.set(BattlePhase::Inactive);
@@ -1396,6 +1415,7 @@ pub fn victory_system(
     mut battle_rng: ResMut<BattleRng>,
     mut party: ResMut<Party>,
     mut bestiary: Option<ResMut<crate::plugins::core_plugin::Bestiary>>,
+    difficulty: Option<Res<DifficultySettings>>,
 ) {
     // Record defeats for all enemies in the bestiary
     if let Some(ref mut bestiary) = bestiary {
@@ -1431,12 +1451,25 @@ pub fn victory_system(
     let party_size = party_units.len() as u32;
     let survivor_count = party_units.iter().filter(|u| u.is_alive()).count() as u32;
 
-    let battle_rewards = rewards::calculate_battle_rewards(
+    let mut battle_rewards = rewards::calculate_battle_rewards(
         &enemy_xp_gold,
         party_size,
         survivor_count,
         &mut battle_rng.0,
     );
+
+    // Scale XP and gold rewards by difficulty multipliers
+    let xp_mult = difficulty
+        .as_ref()
+        .map(|d| d.xp_multiplier())
+        .unwrap_or(1.0);
+    let gold_mult = difficulty
+        .as_ref()
+        .map(|d| d.gold_multiplier())
+        .unwrap_or(1.0);
+    battle_rewards.total_xp = (battle_rewards.total_xp as f32 * xp_mult) as u32;
+    battle_rewards.xp_per_unit = (battle_rewards.xp_per_unit as f32 * xp_mult) as u32;
+    battle_rewards.total_gold = (battle_rewards.total_gold as f32 * gold_mult) as u32;
 
     // Build ability unlock map: unit_id -> [(unlock_level, ability_id)]
     let mut ability_unlocks = std::collections::HashMap::new();
@@ -2163,5 +2196,121 @@ mod tests {
             enemies_with_burn, applied_count,
             "burn count on units should match applied count"
         );
+    }
+
+    // -------------------------------------------------------------------
+    // Difficulty scaling tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_difficulty_enemy_stat_scaling() {
+        use crate::plugins::core_plugin::{Difficulty, DifficultySettings};
+
+        // Simulate the stat scaling logic from battle_enter_system for each difficulty.
+        let mut enemy = make_battle_unit(10, "Goblin", 3, 100, 20, 0);
+        enemy.side = UnitSide::Enemy;
+        enemy.atk = 30;
+        enemy.def = 20;
+
+        for (difficulty, expected_mult) in [
+            (Difficulty::Easy, 0.8_f32),
+            (Difficulty::Normal, 1.0_f32),
+            (Difficulty::Hard, 1.3_f32),
+        ] {
+            let settings = DifficultySettings { difficulty };
+            let mult = settings.enemy_stat_multiplier();
+            assert!(
+                (mult - expected_mult).abs() < f32::EPSILON,
+                "expected {expected_mult} for {difficulty:?}, got {mult}"
+            );
+
+            // Apply the same scaling the system uses
+            let scaled_hp = (enemy.hp as f32 * mult) as i32;
+            let scaled_max_hp = (enemy.max_hp as f32 * mult) as i32;
+            let scaled_atk = (enemy.atk as f32 * mult) as i32;
+            let scaled_def = (enemy.def as f32 * mult) as i32;
+
+            assert_eq!(scaled_hp, (100.0 * expected_mult) as i32);
+            assert_eq!(scaled_max_hp, (100.0 * expected_mult) as i32);
+            assert_eq!(scaled_atk, (30.0 * expected_mult) as i32);
+            assert_eq!(scaled_def, (20.0 * expected_mult) as i32);
+        }
+    }
+
+    #[test]
+    fn test_difficulty_reward_scaling() {
+        use crate::plugins::core_plugin::{Difficulty, DifficultySettings};
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let enemy_xp_gold = vec![(100, 50), (100, 50)]; // 200 XP, 100 gold total
+
+        // Calculate base rewards (Normal difficulty, all survived)
+        let mut rng = StdRng::seed_from_u64(42);
+        let base = rewards::calculate_battle_rewards(&enemy_xp_gold, 2, 2, &mut rng);
+        // With survivor bonus: 200 * 1.2 = 240 XP, 100 * 1.1 = 110 gold
+        assert_eq!(base.total_xp, 240);
+        assert_eq!(base.total_gold, 110);
+
+        // Easy: xp * 1.2, gold * 1.3
+        let easy = DifficultySettings {
+            difficulty: Difficulty::Easy,
+        };
+        let easy_xp = (base.total_xp as f32 * easy.xp_multiplier()) as u32;
+        let easy_gold = (base.total_gold as f32 * easy.gold_multiplier()) as u32;
+        assert_eq!(easy_xp, (240.0 * 1.2) as u32);
+        assert_eq!(easy_gold, (110.0 * 1.3) as u32);
+
+        // Hard: xp * 1.5, gold * 0.8
+        let hard = DifficultySettings {
+            difficulty: Difficulty::Hard,
+        };
+        let hard_xp = (base.total_xp as f32 * hard.xp_multiplier()) as u32;
+        let hard_gold = (base.total_gold as f32 * hard.gold_multiplier()) as u32;
+        assert_eq!(hard_xp, (240.0 * 1.5) as u32);
+        assert_eq!(hard_gold, (110.0 * 0.8) as u32);
+
+        // Verify ordering: hard XP > easy XP > normal XP
+        assert!(hard_xp > easy_xp);
+        assert!(easy_xp > base.total_xp);
+
+        // Verify ordering: easy gold > normal gold > hard gold
+        assert!(easy_gold > base.total_gold);
+        assert!(base.total_gold > hard_gold);
+    }
+
+    #[test]
+    fn test_difficulty_flee_chance_bonus() {
+        use crate::plugins::core_plugin::{Difficulty, DifficultySettings};
+
+        let base_chance = rewards::flee_chance(10.0, 10.0);
+        assert!(
+            (base_chance - 0.5).abs() < 0.001,
+            "equal speed should give ~50% flee chance"
+        );
+
+        // Easy: +0.15 bonus
+        let easy = DifficultySettings {
+            difficulty: Difficulty::Easy,
+        };
+        let easy_chance = (base_chance + easy.flee_chance_bonus()).clamp(0.10, 0.90);
+        assert!(
+            (easy_chance - 0.65).abs() < 0.001,
+            "Easy flee chance should be ~65%, got {easy_chance}"
+        );
+
+        // Hard: -0.10 penalty
+        let hard = DifficultySettings {
+            difficulty: Difficulty::Hard,
+        };
+        let hard_chance = (base_chance + hard.flee_chance_bonus()).clamp(0.10, 0.90);
+        assert!(
+            (hard_chance - 0.40).abs() < 0.001,
+            "Hard flee chance should be ~40%, got {hard_chance}"
+        );
+
+        // Ordering: easy > normal > hard
+        assert!(easy_chance > base_chance);
+        assert!(base_chance > hard_chance);
     }
 }
