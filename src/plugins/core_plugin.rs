@@ -66,6 +66,8 @@ pub struct Party {
     pub unit_hp_pp: HashMap<String, (i32, i32)>,
     /// Djinn assignments: djinn_id -> owning unit_id.
     pub djinn_assignments: HashMap<String, String>,
+    /// Story progress flags for quest/event tracking.
+    pub story_flags: HashMap<String, bool>,
 }
 
 impl Default for Party {
@@ -79,8 +81,43 @@ impl Default for Party {
             unit_levels: HashMap::new(),
             unit_hp_pp: HashMap::new(),
             djinn_assignments: HashMap::new(),
+            story_flags: HashMap::new(),
         }
     }
+}
+
+#[allow(dead_code)]
+impl Party {
+    /// Sets a story flag to the given value.
+    pub fn set_flag(&mut self, flag: &str, value: bool) {
+        self.story_flags.insert(flag.to_string(), value);
+    }
+
+    /// Returns true if the given story flag exists and is set to true.
+    pub fn has_flag(&self, flag: &str) -> bool {
+        self.story_flags.get(flag).copied().unwrap_or(false)
+    }
+
+    /// Returns the number of story flags that are set to true (for progress tracking).
+    pub fn flag_count(&self) -> usize {
+        self.story_flags.values().filter(|&&v| v).count()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pre-defined story flag constants
+// ---------------------------------------------------------------------------
+
+#[allow(dead_code)]
+pub mod story {
+    pub const RECRUITED_KARIS: &str = "recruited_karis";
+    pub const RECRUITED_TYRELL: &str = "recruited_tyrell";
+    pub const RECRUITED_AMITI: &str = "recruited_amiti";
+    pub const TOWER_ENTERED: &str = "tower_entered";
+    pub const TOWER_FLOOR_5: &str = "tower_floor_5";
+    pub const TOWER_COMPLETED: &str = "tower_completed";
+    pub const TALKED_TO_ELDER: &str = "talked_to_elder";
+    pub const FIRST_BATTLE_WON: &str = "first_battle_won";
 }
 
 // ---------------------------------------------------------------------------
@@ -127,4 +164,90 @@ impl Plugin for CoreGamePlugin {
 fn transition_to_main_menu(mut next_state: ResMut<NextState<GameState>>) {
     info!("Game data loaded. Transitioning to MainMenu.");
     next_state.set(GameState::MainMenu);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_set_flag_and_has_flag() {
+        let mut party = Party::default();
+        assert!(!party.has_flag(story::TOWER_ENTERED));
+
+        party.set_flag(story::TOWER_ENTERED, true);
+        assert!(party.has_flag(story::TOWER_ENTERED));
+    }
+
+    #[test]
+    fn test_set_flag_to_false() {
+        let mut party = Party::default();
+        party.set_flag(story::FIRST_BATTLE_WON, true);
+        assert!(party.has_flag(story::FIRST_BATTLE_WON));
+
+        party.set_flag(story::FIRST_BATTLE_WON, false);
+        assert!(!party.has_flag(story::FIRST_BATTLE_WON));
+    }
+
+    #[test]
+    fn test_has_flag_returns_false_for_missing_flag() {
+        let party = Party::default();
+        assert!(!party.has_flag("nonexistent_flag"));
+    }
+
+    #[test]
+    fn test_flag_count_empty() {
+        let party = Party::default();
+        assert_eq!(party.flag_count(), 0);
+    }
+
+    #[test]
+    fn test_flag_count_with_true_and_false_flags() {
+        let mut party = Party::default();
+        party.set_flag(story::RECRUITED_KARIS, true);
+        party.set_flag(story::RECRUITED_TYRELL, true);
+        party.set_flag(story::RECRUITED_AMITI, false);
+        party.set_flag(story::TOWER_ENTERED, true);
+
+        // Only 3 flags are true; the false one should not be counted
+        assert_eq!(party.flag_count(), 3);
+    }
+
+    #[test]
+    fn test_flag_count_after_unsetting() {
+        let mut party = Party::default();
+        party.set_flag(story::TALKED_TO_ELDER, true);
+        party.set_flag(story::TOWER_COMPLETED, true);
+        assert_eq!(party.flag_count(), 2);
+
+        party.set_flag(story::TALKED_TO_ELDER, false);
+        assert_eq!(party.flag_count(), 1);
+    }
+
+    #[test]
+    fn test_story_flag_constants_are_unique() {
+        let flags = [
+            story::RECRUITED_KARIS,
+            story::RECRUITED_TYRELL,
+            story::RECRUITED_AMITI,
+            story::TOWER_ENTERED,
+            story::TOWER_FLOOR_5,
+            story::TOWER_COMPLETED,
+            story::TALKED_TO_ELDER,
+            story::FIRST_BATTLE_WON,
+        ];
+        let unique: std::collections::HashSet<&str> = flags.iter().copied().collect();
+        assert_eq!(
+            flags.len(),
+            unique.len(),
+            "Story flag constants must be unique"
+        );
+    }
+
+    #[test]
+    fn test_default_party_has_no_story_flags() {
+        let party = Party::default();
+        assert!(party.story_flags.is_empty());
+        assert_eq!(party.flag_count(), 0);
+    }
 }

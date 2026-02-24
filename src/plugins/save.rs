@@ -185,13 +185,15 @@ impl SaveData {
             .map(|member| (member.unit_id.clone(), (member.level, member.xp)))
             .collect::<HashMap<_, _>>();
 
+        let story_flags = party.story_flags.clone();
+
         Self {
             version: 1,
             party,
             party_data,
             unit_levels,
             djinn_assignments: HashMap::new(),
-            story_flags: HashMap::new(),
+            story_flags,
             current_map,
             player_position,
             tower_floor: 0,
@@ -204,6 +206,7 @@ impl SaveData {
     pub fn apply_to_game(&self, world: &mut World) {
         let mut restored_party = self.party.clone();
         restored_party.gold = self.gold;
+        restored_party.story_flags = self.story_flags.clone();
 
         // Restore unit_levels and unit_hp_pp on the party from saved party_data
         for member in &self.party_data {

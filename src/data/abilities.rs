@@ -1946,6 +1946,263 @@ pub fn build_ability_registry() -> HashMap<String, Ability> {
                 opener: false,
             },
         },
+        // ===== Additional Elemental Psynergy (5) =====
+        Ability {
+            id: "rock-fall".into(),
+            name: "Rock Fall".into(),
+            ability_type: AbilityType::Psynergy,
+            element: Some(Element::Venus),
+            mana_cost: 3,
+            base_power: 35,
+            targets: TargetKind::SingleEnemy,
+            unlock_level: 2,
+            description: "Hurls heavy boulders at the target".into(),
+            buff_effect: None,
+            duration: None,
+            status_effect: None,
+            chain_damage: false,
+            ignore_defense_percent: 0.0,
+            damage_reduction_percent: 0.0,
+            shield_charges: None,
+            ai_hints: AiHints {
+                priority: 2.0,
+                target: AiTargetPref::Weakest,
+                avoid_overkill: false,
+                opener: false,
+            },
+        },
+        Ability {
+            id: "heat-wave".into(),
+            name: "Heat Wave".into(),
+            ability_type: AbilityType::Psynergy,
+            element: Some(Element::Mars),
+            mana_cost: 3,
+            base_power: 38,
+            targets: TargetKind::AllEnemies,
+            unlock_level: 3,
+            description: "A wave of intense heat washes over all enemies".into(),
+            buff_effect: None,
+            duration: None,
+            status_effect: None,
+            chain_damage: false,
+            ignore_defense_percent: 0.0,
+            damage_reduction_percent: 0.0,
+            shield_charges: None,
+            ai_hints: AiHints {
+                priority: 2.5,
+                target: AiTargetPref::Random,
+                avoid_overkill: false,
+                opener: false,
+            },
+        },
+        Ability {
+            id: "ice-missile".into(),
+            name: "Ice Missile".into(),
+            ability_type: AbilityType::Psynergy,
+            element: Some(Element::Mercury),
+            mana_cost: 3,
+            base_power: 35,
+            targets: TargetKind::SingleEnemy,
+            unlock_level: 2,
+            description: "Launches a razor-sharp shard of ice at the foe".into(),
+            buff_effect: None,
+            duration: None,
+            status_effect: None,
+            chain_damage: false,
+            ignore_defense_percent: 0.0,
+            damage_reduction_percent: 0.0,
+            shield_charges: None,
+            ai_hints: AiHints {
+                priority: 2.0,
+                target: AiTargetPref::LowestRes,
+                avoid_overkill: false,
+                opener: false,
+            },
+        },
+        Ability {
+            id: "tornado".into(),
+            name: "Tornado".into(),
+            ability_type: AbilityType::Psynergy,
+            element: Some(Element::Jupiter),
+            mana_cost: 7,
+            base_power: 60,
+            targets: TargetKind::AllEnemies,
+            unlock_level: 7,
+            description: "A massive tornado tears through all enemies".into(),
+            buff_effect: None,
+            duration: None,
+            status_effect: None,
+            chain_damage: false,
+            ignore_defense_percent: 0.0,
+            damage_reduction_percent: 0.0,
+            shield_charges: None,
+            ai_hints: AiHints {
+                priority: 3.5,
+                target: AiTargetPref::Random,
+                avoid_overkill: false,
+                opener: false,
+            },
+        },
+        Ability {
+            id: "tremor".into(),
+            name: "Tremor".into(),
+            ability_type: AbilityType::Psynergy,
+            element: Some(Element::Venus),
+            mana_cost: 6,
+            base_power: 52,
+            targets: TargetKind::AllEnemies,
+            unlock_level: 6,
+            description: "The ground shakes violently, damaging all enemies".into(),
+            buff_effect: None,
+            duration: None,
+            status_effect: None,
+            chain_damage: false,
+            ignore_defense_percent: 0.0,
+            damage_reduction_percent: 0.0,
+            shield_charges: None,
+            ai_hints: AiHints {
+                priority: 3.0,
+                target: AiTargetPref::Random,
+                avoid_overkill: false,
+                opener: false,
+            },
+        },
+        // ===== Additional Buff/Debuff/Healing/Physical (5) =====
+        Ability {
+            id: "war-cry".into(),
+            name: "War Cry".into(),
+            ability_type: AbilityType::Buff,
+            element: None,
+            mana_cost: 4,
+            base_power: 0,
+            targets: TargetKind::AllAllies,
+            unlock_level: 6,
+            description: "A fierce battle cry that boosts ATK and DEF of all allies".into(),
+            buff_effect: Some(BuffEffect {
+                atk: 5,
+                def: 3,
+                mag: 0,
+                spd: 0,
+            }),
+            duration: Some(3),
+            status_effect: None,
+            chain_damage: false,
+            ignore_defense_percent: 0.0,
+            damage_reduction_percent: 0.0,
+            shield_charges: None,
+            ai_hints: AiHints {
+                priority: 2.5,
+                target: AiTargetPref::Random,
+                avoid_overkill: false,
+                opener: true,
+            },
+        },
+        Ability {
+            id: "drain-kiss".into(),
+            name: "Drain Kiss".into(),
+            ability_type: AbilityType::Healing,
+            element: None,
+            mana_cost: 3,
+            base_power: 30,
+            targets: TargetKind::SingleAlly,
+            unlock_level: 3,
+            description: "Drains life force from the caster to heal an ally".into(),
+            buff_effect: None,
+            duration: None,
+            status_effect: None,
+            chain_damage: false,
+            ignore_defense_percent: 0.0,
+            damage_reduction_percent: 0.0,
+            shield_charges: None,
+            ai_hints: AiHints {
+                priority: 2.0,
+                target: AiTargetPref::HealerFirst,
+                avoid_overkill: false,
+                opener: false,
+            },
+        },
+        Ability {
+            id: "dispel".into(),
+            name: "Dispel".into(),
+            ability_type: AbilityType::Debuff,
+            element: None,
+            mana_cost: 3,
+            base_power: 0,
+            targets: TargetKind::SingleEnemy,
+            unlock_level: 4,
+            description: "Dispels enemy buffs, reducing MAG and SPD".into(),
+            buff_effect: Some(BuffEffect {
+                atk: 0,
+                def: 0,
+                mag: -5,
+                spd: -3,
+            }),
+            duration: Some(2),
+            status_effect: None,
+            chain_damage: false,
+            ignore_defense_percent: 0.0,
+            damage_reduction_percent: 0.0,
+            shield_charges: None,
+            ai_hints: AiHints {
+                priority: 2.2,
+                target: AiTargetPref::Random,
+                avoid_overkill: false,
+                opener: false,
+            },
+        },
+        Ability {
+            id: "crushing-blow".into(),
+            name: "Crushing Blow".into(),
+            ability_type: AbilityType::Physical,
+            element: None,
+            mana_cost: 0,
+            base_power: 35,
+            targets: TargetKind::SingleEnemy,
+            unlock_level: 7,
+            description: "A mighty overhead strike that deals massive damage".into(),
+            buff_effect: None,
+            duration: None,
+            status_effect: None,
+            chain_damage: false,
+            ignore_defense_percent: 0.0,
+            damage_reduction_percent: 0.0,
+            shield_charges: None,
+            ai_hints: AiHints {
+                priority: 3.0,
+                target: AiTargetPref::Weakest,
+                avoid_overkill: true,
+                opener: false,
+            },
+        },
+        Ability {
+            id: "mass-slow".into(),
+            name: "Mass Slow".into(),
+            ability_type: AbilityType::Debuff,
+            element: None,
+            mana_cost: 4,
+            base_power: 0,
+            targets: TargetKind::AllEnemies,
+            unlock_level: 5,
+            description: "Slows all enemies, reducing their SPD".into(),
+            buff_effect: Some(BuffEffect {
+                atk: 0,
+                def: 0,
+                mag: 0,
+                spd: -4,
+            }),
+            duration: Some(2),
+            status_effect: None,
+            chain_damage: false,
+            ignore_defense_percent: 0.0,
+            damage_reduction_percent: 0.0,
+            shield_charges: None,
+            ai_hints: AiHints {
+                priority: 2.8,
+                target: AiTargetPref::Random,
+                avoid_overkill: false,
+                opener: false,
+            },
+        },
     ];
 
     for ability in abilities {
@@ -1953,4 +2210,149 @@ pub fn build_ability_registry() -> HashMap<String, Ability> {
     }
 
     m
+}
+
+// ---------------------------------------------------------------------------
+// Helper functions for ability lookup
+// ---------------------------------------------------------------------------
+
+/// Looks up an ability by its ID from a freshly built registry.
+#[allow(dead_code)]
+pub fn get_ability(id: &str) -> Option<Ability> {
+    let registry = build_ability_registry();
+    registry.get(id).cloned()
+}
+
+/// Returns all abilities matching the given element.
+/// Pass `None` to get abilities with no element (neutral).
+#[allow(dead_code)]
+pub fn get_abilities_by_element(element: Option<Element>) -> Vec<Ability> {
+    let registry = build_ability_registry();
+    registry
+        .into_values()
+        .filter(|a| a.element == element)
+        .collect()
+}
+
+/// Returns all abilities matching the given type string.
+/// Valid type strings: "Physical", "Psynergy", "Healing", "Buff", "Debuff".
+#[allow(dead_code)]
+pub fn get_abilities_by_type(ability_type: &str) -> Vec<Ability> {
+    let target_type = match ability_type {
+        "Physical" => AbilityType::Physical,
+        "Psynergy" => AbilityType::Psynergy,
+        "Healing" => AbilityType::Healing,
+        "Buff" => AbilityType::Buff,
+        "Debuff" => AbilityType::Debuff,
+        _ => return Vec::new(),
+    };
+    let registry = build_ability_registry();
+    registry
+        .into_values()
+        .filter(|a| a.ability_type == target_type)
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ability_count() {
+        let registry = build_ability_registry();
+        assert!(
+            registry.len() >= 80,
+            "Expected at least 80 abilities, found {}",
+            registry.len()
+        );
+    }
+
+    #[test]
+    fn test_all_abilities_have_descriptions() {
+        let registry = build_ability_registry();
+        for (id, ability) in &registry {
+            assert!(
+                !ability.description.is_empty(),
+                "Ability '{}' has an empty description",
+                id
+            );
+        }
+    }
+
+    #[test]
+    fn test_get_ability_by_id() {
+        let strike = get_ability("strike");
+        assert!(strike.is_some(), "Expected to find ability 'strike'");
+        let strike = strike.unwrap();
+        assert_eq!(strike.name, "Strike");
+        assert_eq!(strike.ability_type, AbilityType::Physical);
+
+        let fireball = get_ability("fireball");
+        assert!(fireball.is_some(), "Expected to find ability 'fireball'");
+        let fireball = fireball.unwrap();
+        assert_eq!(fireball.name, "Fireball");
+        assert_eq!(fireball.element, Some(Element::Mars));
+
+        let nonexistent = get_ability("nonexistent-ability");
+        assert!(
+            nonexistent.is_none(),
+            "Expected None for nonexistent ability"
+        );
+    }
+
+    #[test]
+    fn test_get_abilities_by_element() {
+        let venus_abilities = get_abilities_by_element(Some(Element::Venus));
+        assert!(
+            !venus_abilities.is_empty(),
+            "Expected at least one Venus ability"
+        );
+        for ability in &venus_abilities {
+            assert_eq!(
+                ability.element,
+                Some(Element::Venus),
+                "Ability '{}' should be Venus element",
+                ability.id
+            );
+        }
+
+        let neutral_abilities = get_abilities_by_element(None);
+        assert!(
+            !neutral_abilities.is_empty(),
+            "Expected at least one neutral ability"
+        );
+        for ability in &neutral_abilities {
+            assert_eq!(
+                ability.element, None,
+                "Ability '{}' should have no element",
+                ability.id
+            );
+        }
+    }
+
+    #[test]
+    fn test_healing_abilities_have_positive_power() {
+        let healing_abilities = get_abilities_by_type("Healing");
+        assert!(
+            !healing_abilities.is_empty(),
+            "Expected at least one Healing ability"
+        );
+        // Filter to only those that are actual HP restoration (not status cure)
+        let restorative: Vec<&Ability> = healing_abilities
+            .iter()
+            .filter(|a| a.name != "Cure Poison")
+            .collect();
+        for ability in &restorative {
+            assert!(
+                ability.base_power > 0,
+                "Healing ability '{}' should have base_power > 0, found {}",
+                ability.id,
+                ability.base_power
+            );
+        }
+    }
 }
