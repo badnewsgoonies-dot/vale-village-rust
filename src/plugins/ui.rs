@@ -110,6 +110,7 @@ impl TutorialState {
     }
 }
 
+#[allow(dead_code)]
 /// Player-facing setting to enable or disable tutorial tips entirely.
 #[derive(Resource, Debug, Clone)]
 pub struct TutorialSettings {
