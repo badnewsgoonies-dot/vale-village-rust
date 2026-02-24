@@ -5,8 +5,8 @@
 //! builds the MainMenu UI, Pause overlay, and Settings screen.
 
 use bevy::prelude::*;
-use std::collections::HashMap;
 use bevy::window::{PrimaryWindow, WindowMode, WindowResolution};
+use std::collections::HashMap;
 
 use super::audio::AudioSettings;
 use super::core_plugin::{Difficulty, DifficultySettings, GameState, Party};
@@ -134,7 +134,7 @@ struct PendingTutorialTip {
 
 /// Static definitions for all tutorial tips.
 struct TutorialTipDef {
-#[allow(dead_code)]
+    #[allow(dead_code)]
     key: &'static str,
     message: &'static str,
     #[allow(dead_code)]
@@ -143,7 +143,7 @@ struct TutorialTipDef {
 }
 
 const TUTORIAL_TIPS: &[TutorialTipDef] = &[
-#[allow(dead_code)]
+    #[allow(dead_code)]
     TutorialTipDef {
         key: "welcome",
         message: "Welcome to Vale Village! Use arrow keys to move. Talk to NPCs with Enter.",

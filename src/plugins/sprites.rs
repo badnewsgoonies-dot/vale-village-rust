@@ -112,6 +112,40 @@ fn enemy_sprite_mappings() -> Vec<(&'static str, &'static str)> {
             "vale-overlord",
             "sprites/placeholders/elemental_guardian.png",
         ),
+        // --- Wave 12: New enemy types ---
+        // Tier 1 (basic creatures)
+        ("mushroom", "sprites/placeholders/slime.png"),
+        ("cave-bat", "sprites/placeholders/sprite.png"),
+        ("rat-king", "sprites/placeholders/wolf.png"),
+        ("wild-boar", "sprites/placeholders/wolf.png"),
+        // Tier 2 (mid-level)
+        ("stone-golem", "sprites/placeholders/sentinel.png"),
+        ("dire-wolf", "sprites/placeholders/wolf.png"),
+        ("dark-mage", "sprites/placeholders/mystic.png"),
+        ("sand-scorpion", "sprites/placeholders/beetle.png"),
+        // Tier 3 (tough)
+        ("wyvern", "sprites/placeholders/stormcaller.png"),
+        ("frost-giant", "sprites/placeholders/gladiator.png"),
+        ("shadow-knight", "sprites/placeholders/gladiator.png"),
+        ("thunder-drake", "sprites/placeholders/stormcaller.png"),
+        // Tier 4 (elite)
+        (
+            "ancient-dragon",
+            "sprites/placeholders/elemental_guardian.png",
+        ),
+        ("lich-lord", "sprites/placeholders/mystic.png"),
+        (
+            "storm-titan-elite",
+            "sprites/placeholders/elemental_guardian.png",
+        ),
+        (
+            "abyssal-horror",
+            "sprites/placeholders/guardian_shard_water.png",
+        ),
+        // Named bosses
+        ("saturos", "sprites/placeholders/war_mage.png"),
+        ("menardi", "sprites/placeholders/war_mage.png"),
+        ("agatio", "sprites/placeholders/guardian_shard_fire.png"),
     ]
 }
 

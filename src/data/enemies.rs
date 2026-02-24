@@ -45,7 +45,7 @@ fn drop(id: &str, chance: f32) -> (String, f32) {
     (id.into(), chance)
 }
 
-/// Build the registry of all enemy definitions (50 types).
+/// Build the registry of all enemy definitions (65 types).
 pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
     let mut m = HashMap::new();
 
@@ -396,6 +396,75 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             base_gold: 26,
             tier: 1,
             drop_table: vec![drop("mercury-mist-elixir", 0.12), drop("lucky_medal", 0.02)],
+        },
+        // ===== NEW BEASTS - Tier 1 Basics (4) =====
+        EnemyDefinition {
+            id: "mushroom".into(),
+            name: "Mushroom".into(),
+            level: 1,
+            element: Element::Venus,
+            hp: 35,
+            pp: 5,
+            atk: 5,
+            def: 4,
+            mag: 3,
+            spd: 4,
+            abilities: vec![ea("strike"), ea("poison-strike")],
+            base_xp: 10,
+            base_gold: 8,
+            tier: 1,
+            drop_table: vec![drop("herb", 0.30)],
+        },
+        EnemyDefinition {
+            id: "cave-bat".into(),
+            name: "Cave Bat".into(),
+            level: 1,
+            element: Element::Jupiter,
+            hp: 30,
+            pp: 6,
+            atk: 6,
+            def: 3,
+            mag: 4,
+            spd: 14,
+            abilities: vec![ea("strike"), ea("drain-kiss")],
+            base_xp: 11,
+            base_gold: 7,
+            tier: 1,
+            drop_table: Vec::new(),
+        },
+        EnemyDefinition {
+            id: "rat-king".into(),
+            name: "Rat King".into(),
+            level: 2,
+            element: Element::Venus,
+            hp: 65,
+            pp: 8,
+            atk: 10,
+            def: 6,
+            mag: 4,
+            spd: 12,
+            abilities: vec![ea("strike"), ea("venom-bite"), ea("precise-jab")],
+            base_xp: 18,
+            base_gold: 14,
+            tier: 1,
+            drop_table: vec![drop("antidote", 0.20)],
+        },
+        EnemyDefinition {
+            id: "wild-boar".into(),
+            name: "Wild Boar".into(),
+            level: 3,
+            element: Element::Venus,
+            hp: 90,
+            pp: 5,
+            atk: 14,
+            def: 10,
+            mag: 2,
+            spd: 9,
+            abilities: vec![ea("strike"), ea("heavy-strike"), ea("crushing-blow")],
+            base_xp: 25,
+            base_gold: 18,
+            tier: 1,
+            drop_table: vec![drop("herb", 0.15)],
         },
         // ===== SLAVERS - Tier 1 Scouts (4) =====
         EnemyDefinition {
@@ -759,7 +828,290 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             tier: 2,
             drop_table: Vec::new(),
         },
-        // ===== BOSSES (9) =====
+        // ===== NEW MONSTERS - Tier 2 Mid-game (4) =====
+        EnemyDefinition {
+            id: "stone-golem".into(),
+            name: "Stone Golem".into(),
+            level: 6,
+            element: Element::Venus,
+            hp: 280,
+            pp: 10,
+            atk: 20,
+            def: 26,
+            mag: 6,
+            spd: 5,
+            abilities: vec![
+                ea("strike"),
+                ea("heavy-strike"),
+                ea("quake"),
+                ea("guard-break"),
+            ],
+            base_xp: 65,
+            base_gold: 55,
+            tier: 2,
+            drop_table: vec![drop("potion", 0.12)],
+        },
+        EnemyDefinition {
+            id: "dire-wolf".into(),
+            name: "Dire Wolf".into(),
+            level: 7,
+            element: Element::Venus,
+            hp: 200,
+            pp: 12,
+            atk: 24,
+            def: 16,
+            mag: 8,
+            spd: 18,
+            abilities: vec![
+                ea("strike"),
+                ea("crushing-blow"),
+                ea("venom-bite"),
+                ea("precise-jab"),
+            ],
+            base_xp: 80,
+            base_gold: 60,
+            tier: 2,
+            drop_table: Vec::new(),
+        },
+        EnemyDefinition {
+            id: "dark-mage".into(),
+            name: "Dark Mage".into(),
+            level: 8,
+            element: Element::Jupiter,
+            hp: 180,
+            pp: 45,
+            atk: 14,
+            def: 14,
+            mag: 30,
+            spd: 15,
+            abilities: vec![
+                ea("chain-lightning"),
+                ea("blind"),
+                ea("curse"),
+                ea("enfeeble"),
+                ea("heal"),
+            ],
+            base_xp: 95,
+            base_gold: 72,
+            tier: 2,
+            drop_table: vec![drop("mercury-mist-elixir", 0.10)],
+        },
+        EnemyDefinition {
+            id: "sand-scorpion".into(),
+            name: "Sand Scorpion".into(),
+            level: 8,
+            element: Element::Mars,
+            hp: 220,
+            pp: 18,
+            atk: 26,
+            def: 22,
+            mag: 12,
+            spd: 14,
+            abilities: vec![
+                ea("strike"),
+                ea("venom-bite"),
+                ea("burn-touch"),
+                ea("armor-pierce"),
+            ],
+            base_xp: 90,
+            base_gold: 70,
+            tier: 2,
+            drop_table: vec![drop("antidote", 0.20)],
+        },
+        // ===== NEW MONSTERS - Tier 3 Tough (4) =====
+        EnemyDefinition {
+            id: "wyvern".into(),
+            name: "Wyvern".into(),
+            level: 11,
+            element: Element::Jupiter,
+            hp: 420,
+            pp: 35,
+            atk: 32,
+            def: 24,
+            mag: 26,
+            spd: 22,
+            abilities: vec![
+                ea("gust"),
+                ea("gale-force-damage"),
+                ea("whirlwind-slash"),
+                ea("boost-spd"),
+            ],
+            base_xp: 200,
+            base_gold: 110,
+            tier: 3,
+            drop_table: vec![drop("potion", 0.20)],
+        },
+        EnemyDefinition {
+            id: "frost-giant".into(),
+            name: "Frost Giant".into(),
+            level: 12,
+            element: Element::Mercury,
+            hp: 550,
+            pp: 40,
+            atk: 34,
+            def: 30,
+            mag: 28,
+            spd: 9,
+            abilities: vec![
+                ea("ice-shard"),
+                ea("freeze-blast"),
+                ea("tundra"),
+                ea("heavy-strike"),
+                ea("boost-def"),
+            ],
+            base_xp: 220,
+            base_gold: 120,
+            tier: 3,
+            drop_table: vec![drop("elixir", 0.10), drop("mercury-water-of-life", 0.08)],
+        },
+        EnemyDefinition {
+            id: "shadow-knight".into(),
+            name: "Shadow Knight".into(),
+            level: 13,
+            element: Element::Venus,
+            hp: 480,
+            pp: 30,
+            atk: 38,
+            def: 32,
+            mag: 18,
+            spd: 16,
+            abilities: vec![
+                ea("strike"),
+                ea("crushing-blow"),
+                ea("guard-break"),
+                ea("curse"),
+                ea("boost-atk"),
+            ],
+            base_xp: 240,
+            base_gold: 130,
+            tier: 3,
+            drop_table: vec![drop("potion", 0.15), drop("power_bread", 0.05)],
+        },
+        EnemyDefinition {
+            id: "thunder-drake".into(),
+            name: "Thunder Drake".into(),
+            level: 14,
+            element: Element::Jupiter,
+            hp: 500,
+            pp: 50,
+            atk: 36,
+            def: 28,
+            mag: 35,
+            spd: 20,
+            abilities: vec![
+                ea("chain-lightning"),
+                ea("plasma"),
+                ea("paralyze-shock"),
+                ea("gust"),
+                ea("boost-atk"),
+            ],
+            base_xp: 260,
+            base_gold: 140,
+            tier: 3,
+            drop_table: vec![drop("jupiter-lightning-flask", 0.12)],
+        },
+        // ===== NEW ELITES - Tier 4 Elite Monsters (4) =====
+        EnemyDefinition {
+            id: "ancient-dragon".into(),
+            name: "Ancient Dragon".into(),
+            level: 16,
+            element: Element::Mars,
+            hp: 850,
+            pp: 70,
+            atk: 44,
+            def: 36,
+            mag: 42,
+            spd: 18,
+            abilities: vec![
+                ea("fireball"),
+                ea("inferno"),
+                ea("flare"),
+                ea("burn-touch"),
+                ea("boost-atk"),
+                ea("weaken-def"),
+            ],
+            base_xp: 380,
+            base_gold: 180,
+            tier: 4,
+            drop_table: vec![drop("elixir", 0.25), drop("revive-stone", 0.15)],
+        },
+        EnemyDefinition {
+            id: "lich-lord".into(),
+            name: "Lich Lord".into(),
+            level: 17,
+            element: Element::Mercury,
+            hp: 700,
+            pp: 90,
+            atk: 30,
+            def: 28,
+            mag: 52,
+            spd: 16,
+            abilities: vec![
+                ea("freeze-blast"),
+                ea("tundra"),
+                ea("curse"),
+                ea("haunt"),
+                ea("heal"),
+                ea("enfeeble"),
+            ],
+            base_xp: 400,
+            base_gold: 190,
+            tier: 4,
+            drop_table: vec![drop("elixir", 0.30), drop("revive-stone", 0.20)],
+        },
+        EnemyDefinition {
+            id: "storm-titan-elite".into(),
+            name: "Storm Titan".into(),
+            level: 18,
+            element: Element::Jupiter,
+            hp: 950,
+            pp: 80,
+            atk: 46,
+            def: 38,
+            mag: 48,
+            spd: 20,
+            abilities: vec![
+                ea("chain-lightning"),
+                ea("tornado"),
+                ea("plasma"),
+                ea("paralyze-shock"),
+                ea("boost-atk"),
+                ea("boost-spd"),
+            ],
+            base_xp: 420,
+            base_gold: 200,
+            tier: 4,
+            drop_table: vec![drop("elixir", 0.35), drop("jupiter-hermes-water", 0.20)],
+        },
+        EnemyDefinition {
+            id: "abyssal-horror".into(),
+            name: "Abyssal Horror".into(),
+            level: 19,
+            element: Element::Venus,
+            hp: 1000,
+            pp: 75,
+            atk: 48,
+            def: 40,
+            mag: 44,
+            spd: 14,
+            abilities: vec![
+                ea("quake"),
+                ea("gaia"),
+                ea("curse"),
+                ea("haunt"),
+                ea("guard-break"),
+                ea("boost-def"),
+            ],
+            base_xp: 450,
+            base_gold: 210,
+            tier: 4,
+            drop_table: vec![
+                drop("elixir", 0.35),
+                drop("revive-stone", 0.25),
+                drop("lucky_medal", 0.15),
+            ],
+        },
+        // ===== BOSSES (12) =====
         EnemyDefinition {
             id: "slaver-chief".into(),
             name: "Slaver Chief".into(),
@@ -989,6 +1341,93 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
                 drop("lucky_medal", 0.20),
             ],
         },
+        // ===== NEW BOSSES - Golden Sun Antagonists (3) =====
+        EnemyDefinition {
+            id: "saturos".into(),
+            name: "Saturos".into(),
+            level: 10,
+            element: Element::Mars,
+            hp: 650,
+            pp: 55,
+            atk: 32,
+            def: 26,
+            mag: 36,
+            spd: 18,
+            abilities: vec![
+                ea("fireball"),
+                ea("flare"),
+                ea("heat-wave"),
+                ea("burn-touch"),
+                ea("boost-atk"),
+                ea("weaken-def"),
+            ],
+            base_xp: 250,
+            base_gold: 150,
+            tier: 4,
+            drop_table: vec![
+                drop("elixir", 0.40),
+                drop("revive-stone", 0.25),
+                drop("power_bread", 0.15),
+            ],
+        },
+        EnemyDefinition {
+            id: "menardi".into(),
+            name: "Menardi".into(),
+            level: 10,
+            element: Element::Mars,
+            hp: 620,
+            pp: 60,
+            atk: 30,
+            def: 24,
+            mag: 38,
+            spd: 20,
+            abilities: vec![
+                ea("fireball"),
+                ea("inferno"),
+                ea("scorch"),
+                ea("heal"),
+                ea("boost-atk"),
+                ea("burn-touch"),
+            ],
+            base_xp: 250,
+            base_gold: 150,
+            tier: 4,
+            drop_table: vec![
+                drop("elixir", 0.40),
+                drop("revive-stone", 0.25),
+                drop("mercury-water-of-life", 0.15),
+            ],
+        },
+        EnemyDefinition {
+            id: "agatio".into(),
+            name: "Agatio".into(),
+            level: 15,
+            element: Element::Mars,
+            hp: 1100,
+            pp: 80,
+            atk: 45,
+            def: 35,
+            mag: 48,
+            spd: 19,
+            abilities: vec![
+                ea("inferno"),
+                ea("supernova"),
+                ea("flare"),
+                ea("burn-touch"),
+                ea("boost-atk"),
+                ea("weaken-def"),
+                ea("heal"),
+            ],
+            base_xp: 500,
+            base_gold: 280,
+            tier: 4,
+            drop_table: vec![
+                drop("elixir", 0.50),
+                drop("revive-stone", 0.35),
+                drop("lucky_medal", 0.20),
+                drop("power_bread", 0.15),
+            ],
+        },
     ];
 
     for enemy in enemies {
@@ -1106,6 +1545,170 @@ mod tests {
                     ea.ability_id
                 );
             }
+        }
+    }
+
+    #[test]
+    fn test_no_duplicate_enemy_ids() {
+        let registry = build_enemy_registry();
+        let mut seen = std::collections::HashSet::new();
+        for (id, _) in &registry {
+            assert!(
+                seen.insert(id.clone()),
+                "Duplicate enemy ID found: '{}'",
+                id
+            );
+        }
+    }
+
+    #[test]
+    fn test_all_enemies_have_positive_hp_atk_def() {
+        let registry = build_enemy_registry();
+        for (id, enemy) in &registry {
+            assert!(
+                enemy.hp > 0,
+                "Enemy '{}' has non-positive HP: {}",
+                id,
+                enemy.hp
+            );
+            assert!(
+                enemy.atk > 0,
+                "Enemy '{}' has non-positive ATK: {}",
+                id,
+                enemy.atk
+            );
+            assert!(
+                enemy.def > 0,
+                "Enemy '{}' has non-positive DEF: {}",
+                id,
+                enemy.def
+            );
+        }
+    }
+
+    #[test]
+    fn test_xp_and_gold_scale_with_level() {
+        let registry = build_enemy_registry();
+        let mut enemies: Vec<_> = registry.values().collect();
+        enemies.sort_by_key(|e| e.level);
+
+        // Group by level and verify average xp/gold generally increases.
+        let mut level_groups: std::collections::BTreeMap<u8, (Vec<u32>, Vec<u32>)> =
+            std::collections::BTreeMap::new();
+        for e in &enemies {
+            let entry = level_groups
+                .entry(e.level)
+                .or_insert_with(|| (vec![], vec![]));
+            entry.0.push(e.base_xp);
+            entry.1.push(e.base_gold);
+        }
+
+        let mut prev_avg_xp: f64 = 0.0;
+        let mut prev_avg_gold: f64 = 0.0;
+        let mut prev_level: u8 = 0;
+        for (level, (xps, golds)) in &level_groups {
+            let avg_xp: f64 = xps.iter().sum::<u32>() as f64 / xps.len() as f64;
+            let avg_gold: f64 = golds.iter().sum::<u32>() as f64 / golds.len() as f64;
+            if prev_level > 0 {
+                assert!(
+                    avg_xp >= prev_avg_xp * 0.5,
+                    "Level {} avg XP ({:.0}) dropped too much vs level {} ({:.0})",
+                    level,
+                    avg_xp,
+                    prev_level,
+                    prev_avg_xp
+                );
+                assert!(
+                    avg_gold >= prev_avg_gold * 0.5,
+                    "Level {} avg gold ({:.0}) dropped too much vs level {} ({:.0})",
+                    level,
+                    avg_gold,
+                    prev_level,
+                    prev_avg_gold
+                );
+            }
+            prev_avg_xp = avg_xp;
+            prev_avg_gold = avg_gold;
+            prev_level = *level;
+        }
+    }
+
+    #[test]
+    fn test_boss_enemies_have_higher_stats_than_regular() {
+        let registry = build_enemy_registry();
+
+        // Separate bosses (tier 4) from regular enemies (tier 1-3).
+        let bosses: Vec<_> = registry.values().filter(|e| e.tier == 4).collect();
+        let regulars: Vec<_> = registry.values().filter(|e| e.tier < 4).collect();
+
+        for boss in &bosses {
+            // Find regular enemies at the same level or close (within 2 levels).
+            let comparable: Vec<_> = regulars
+                .iter()
+                .filter(|r| r.level >= boss.level.saturating_sub(2) && r.level <= boss.level + 2)
+                .collect();
+
+            if comparable.is_empty() {
+                continue;
+            }
+
+            let avg_hp: f64 =
+                comparable.iter().map(|r| r.hp as f64).sum::<f64>() / comparable.len() as f64;
+
+            assert!(
+                boss.hp as f64 > avg_hp,
+                "Boss '{}' (level {}, HP {}) should have more HP than average regular \
+                 enemies at similar levels ({:.0})",
+                boss.id,
+                boss.level,
+                boss.hp,
+                avg_hp
+            );
+        }
+    }
+
+    #[test]
+    fn test_expanded_enemy_count() {
+        let registry = build_enemy_registry();
+        assert!(
+            registry.len() >= 65,
+            "Expected at least 65 enemies after expansion, got {}",
+            registry.len()
+        );
+    }
+
+    #[test]
+    fn test_tier_3_enemies_exist() {
+        let enemies = get_enemies_by_tier(3);
+        assert!(
+            !enemies.is_empty(),
+            "Tier 3 should have at least one enemy after expansion"
+        );
+    }
+
+    #[test]
+    fn test_new_boss_enemies_present() {
+        let registry = build_enemy_registry();
+        let expected_bosses = ["saturos", "menardi", "agatio"];
+        for boss_id in &expected_bosses {
+            assert!(
+                registry.contains_key(*boss_id),
+                "Expected boss '{}' to be in the registry",
+                boss_id
+            );
+            let boss = &registry[*boss_id];
+            assert_eq!(boss.tier, 4, "Boss '{}' should be tier 4", boss_id);
+            assert_eq!(
+                boss.element,
+                Element::Mars,
+                "Boss '{}' should be Mars element",
+                boss_id
+            );
+            assert!(
+                !boss.drop_table.is_empty(),
+                "Boss '{}' should have item drops",
+                boss_id
+            );
         }
     }
 }
