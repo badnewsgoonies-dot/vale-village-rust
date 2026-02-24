@@ -189,16 +189,20 @@ pub fn calculate_physical_damage(
 // Psynergy (magic) damage
 // ---------------------------------------------------------------------------
 
-/// Calculate psynergy (magic) damage.
+/// Calculate psynergy (magic) damage with a weather multiplier.
 ///
-/// Formula: `(base_power + mag - def * 0.3 * (1 - ignore_def_pct)) * element_mod`
+/// Formula: `(base_power + mag - def * 0.3 * (1 - ignore_def_pct)) * element_mod * weather_multiplier`
 /// Buff/debuff modifiers are applied to MAG and DEF via `effective_stat()`.
 /// Crit chance is rolled; crits multiply final damage by 1.5x.
-pub fn calculate_psynergy_damage(
+///
+/// The `weather_multiplier` scales final damage based on current weather conditions
+/// (e.g. 1.10 for a 10% boost, 0.90 for a 10% reduction, 1.0 for no effect).
+pub fn calculate_psynergy_damage_with_weather(
     attacker: &BattleUnit,
     defender: &BattleUnit,
     ability: &AbilityDef,
     defender_is_defending: bool,
+    weather_multiplier: f32,
     rng: &mut impl Rng,
 ) -> i32 {
     let eff_mag = effective_stat(attacker, StatKind::Mag) as f32;
@@ -230,14 +234,69 @@ pub fn calculate_psynergy_damage(
         damage *= 1.5;
     }
 
+    // Apply weather multiplier to final damage
+    damage *= weather_multiplier;
+
     (damage.floor() as i32).max(constants::MINIMUM_DAMAGE)
+}
+
+/// Calculate psynergy (magic) damage without weather effects.
+///
+/// This is a backwards-compatible wrapper around [`calculate_psynergy_damage_with_weather`]
+/// that passes a neutral weather multiplier of `1.0`.
+#[allow(dead_code)]
+pub fn calculate_psynergy_damage(
+    attacker: &BattleUnit,
+    defender: &BattleUnit,
+    ability: &AbilityDef,
+    defender_is_defending: bool,
+    rng: &mut impl Rng,
+) -> i32 {
+    calculate_psynergy_damage_with_weather(
+        attacker,
+        defender,
+        ability,
+        defender_is_defending,
+        1.0,
+        rng,
+    )
 }
 
 // ---------------------------------------------------------------------------
 // Unified damage dispatcher
 // ---------------------------------------------------------------------------
 
+/// Calculate damage for any ability, dispatching on its kind, with weather effects.
+///
+/// For psynergy and debuff abilities, the `weather_multiplier` is applied.
+/// Physical abilities are not affected by weather.
+pub fn calculate_damage_with_weather(
+    attacker: &BattleUnit,
+    defender: &BattleUnit,
+    ability: &AbilityDef,
+    defender_is_defending: bool,
+    weather_multiplier: f32,
+    rng: &mut impl Rng,
+) -> i32 {
+    match ability.ability_type {
+        AbilityType::Physical => {
+            calculate_physical_damage(attacker, defender, ability, defender_is_defending, rng)
+        }
+        AbilityType::Psynergy | AbilityType::Debuff => calculate_psynergy_damage_with_weather(
+            attacker,
+            defender,
+            ability,
+            defender_is_defending,
+            weather_multiplier,
+            rng,
+        ),
+        AbilityType::Healing | AbilityType::Buff => 0,
+    }
+}
+
 /// Calculate damage for any ability, dispatching on its kind.
+///
+/// Backwards-compatible wrapper that passes a neutral weather multiplier of `1.0`.
 pub fn calculate_damage(
     attacker: &BattleUnit,
     defender: &BattleUnit,
@@ -245,15 +304,7 @@ pub fn calculate_damage(
     defender_is_defending: bool,
     rng: &mut impl Rng,
 ) -> i32 {
-    match ability.ability_type {
-        AbilityType::Physical => {
-            calculate_physical_damage(attacker, defender, ability, defender_is_defending, rng)
-        }
-        AbilityType::Psynergy | AbilityType::Debuff => {
-            calculate_psynergy_damage(attacker, defender, ability, defender_is_defending, rng)
-        }
-        AbilityType::Healing | AbilityType::Buff => 0,
-    }
+    calculate_damage_with_weather(attacker, defender, ability, defender_is_defending, 1.0, rng)
 }
 
 // ---------------------------------------------------------------------------
@@ -596,6 +647,127 @@ mod tests {
         assert!(
             dmg_buffed > dmg_no_buff,
             "Buffed damage ({dmg_buffed}) should be greater than unbuffed ({dmg_no_buff})"
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // weather multiplier tests
+    // -------------------------------------------------------------------
+
+    /// Helper: create a psynergy ability with the given element.
+    fn psynergy_ability(element: Element) -> AbilityDef {
+        AbilityDef {
+            id: "psy_test".into(),
+            name: "Psy Test".into(),
+            ability_type: AbilityType::Psynergy,
+            element: Some(element),
+            mana_cost: 5,
+            base_power: 50,
+            targets: TargetKind::SingleEnemy,
+            unlock_level: 1,
+            description: String::new(),
+            buff_effect: None,
+            duration: None,
+            status_effect: None,
+            chain_damage: false,
+            ignore_defense_percent: 0.0,
+            damage_reduction_percent: 0.0,
+            shield_charges: None,
+            ai_hints: AiHints {
+                priority: 1.0,
+                target: AiTargetPref::Weakest,
+                avoid_overkill: false,
+                opener: false,
+            },
+        }
+    }
+
+    #[test]
+    fn test_weather_rain_boosts_mercury_damage() {
+        // Rain boosts Mercury by 10% => weather_multiplier = 1.10
+        let attacker = make_unit(10, 10, 30, 10, Element::Mercury);
+        let defender = make_unit(10, 10, 10, 10, Element::Neutral);
+        let ability = psynergy_ability(Element::Mercury);
+
+        let mut rng_base = StdRng::seed_from_u64(42);
+        let dmg_no_weather = calculate_psynergy_damage_with_weather(
+            &attacker,
+            &defender,
+            &ability,
+            false,
+            1.0,
+            &mut rng_base,
+        );
+
+        let mut rng_rain = StdRng::seed_from_u64(42);
+        let dmg_rain = calculate_psynergy_damage_with_weather(
+            &attacker,
+            &defender,
+            &ability,
+            false,
+            1.10,
+            &mut rng_rain,
+        );
+
+        assert!(
+            dmg_rain > dmg_no_weather,
+            "Rain + Mercury should boost damage: rain={dmg_rain}, base={dmg_no_weather}"
+        );
+    }
+
+    #[test]
+    fn test_weather_rain_reduces_mars_damage() {
+        // Rain reduces Mars by 10% => weather_multiplier = 0.90
+        let attacker = make_unit(10, 10, 30, 10, Element::Mars);
+        let defender = make_unit(10, 10, 10, 10, Element::Neutral);
+        let ability = psynergy_ability(Element::Mars);
+
+        let mut rng_base = StdRng::seed_from_u64(42);
+        let dmg_no_weather = calculate_psynergy_damage_with_weather(
+            &attacker,
+            &defender,
+            &ability,
+            false,
+            1.0,
+            &mut rng_base,
+        );
+
+        let mut rng_rain = StdRng::seed_from_u64(42);
+        let dmg_rain = calculate_psynergy_damage_with_weather(
+            &attacker,
+            &defender,
+            &ability,
+            false,
+            0.90,
+            &mut rng_rain,
+        );
+
+        assert!(
+            dmg_rain < dmg_no_weather,
+            "Rain + Mars should reduce damage: rain={dmg_rain}, base={dmg_no_weather}"
+        );
+    }
+
+    #[test]
+    fn test_weather_clear_no_effect() {
+        // Clear weather => weather_multiplier = 1.0, no change
+        let attacker = make_unit(10, 10, 30, 10, Element::Venus);
+        let defender = make_unit(10, 10, 10, 10, Element::Neutral);
+        let ability = psynergy_ability(Element::Venus);
+
+        let mut rng1 = StdRng::seed_from_u64(42);
+        let dmg_clear = calculate_psynergy_damage_with_weather(
+            &attacker, &defender, &ability, false, 1.0, &mut rng1,
+        );
+
+        let mut rng2 = StdRng::seed_from_u64(42);
+        let dmg_wrapper =
+            calculate_psynergy_damage(&attacker, &defender, &ability, false, &mut rng2);
+
+        assert_eq!(
+            dmg_clear, dmg_wrapper,
+            "Clear weather (1.0) should produce identical damage to the no-weather wrapper: \
+             clear={dmg_clear}, wrapper={dmg_wrapper}"
         );
     }
 }

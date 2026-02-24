@@ -11,6 +11,8 @@ const DIM_TEXT: Color = Color::srgb(0.6, 0.55, 0.4);
 const EQUIP_HIGHLIGHT: Color = Color::srgb(0.3, 0.8, 0.3);
 const ERROR_TEXT: Color = Color::srgb(0.9, 0.3, 0.3);
 const SWAP_SELECT_COLOR: Color = Color::srgb(0.2, 0.6, 1.0);
+#[allow(dead_code)]
+const DJINN_COLOR: Color = Color::srgb(0.6, 0.4, 0.9);
 
 #[derive(Component)]
 struct InventoryRoot;

@@ -11,6 +11,7 @@ use rand::rngs::StdRng;
 use crate::battle::{ai, damage, djinn, rewards, status, turn_order, types::*};
 use crate::components::battle::PartyCombatant;
 use crate::data::items::ItemCategory;
+use crate::plugins::audio::PlaySfxEvent;
 use crate::plugins::core_plugin::{
     DifficultySettings, GameData, GameState, Party, achievements, story,
 };
@@ -634,6 +635,7 @@ pub fn resolution_system(
     game_data: Res<GameData>,
     mut party: ResMut<Party>,
     difficulty: Option<Res<DifficultySettings>>,
+    mut sfx_events: EventWriter<PlaySfxEvent>,
 ) {
     let idx = battle_state.current_actor_index;
 
@@ -714,6 +716,7 @@ pub fn resolution_system(
                 &mut damage_events,
                 &mut ko_events,
                 &battle_state,
+                Some(&mut sfx_events),
             );
         }
         BattleAction::Ability {
@@ -731,6 +734,7 @@ pub fn resolution_system(
                 &mut ko_events,
                 &battle_state,
                 &game_data,
+                Some(&mut sfx_events),
             );
         }
         BattleAction::Defend => {}
@@ -761,6 +765,7 @@ pub fn resolution_system(
                 &mut damage_events,
                 &mut ko_events,
                 &battle_state,
+                Some(&mut sfx_events),
             );
         }
         BattleAction::Summon { djinn_ids } => {
@@ -995,6 +1000,7 @@ fn avg_speed(units: &Query<&mut BattleUnit>, side: UnitSide) -> f32 {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_basic_attack(
     attacker_id: u32,
     target_id: u32,
@@ -1003,6 +1009,7 @@ fn execute_basic_attack(
     damage_events: &mut EventWriter<DamageEvent>,
     ko_events: &mut EventWriter<UnitKoEvent>,
     battle_state: &ResMut<BattleStateRes>,
+    mut sfx_events: Option<&mut EventWriter<PlaySfxEvent>>,
 ) {
     let attacker_data = units.iter().find(|u| u.id == attacker_id).cloned();
     let attacker = match attacker_data {
@@ -1074,6 +1081,9 @@ fn execute_basic_attack(
             element: Some(attacker.element),
             was_blocked: result.was_blocked,
         });
+        if let Some(ref mut writer) = sfx_events {
+            writer.send(PlaySfxEvent("attack_hit".into()));
+        }
         if target.is_ko() {
             ko_events.send(UnitKoEvent {
                 unit_id: target.id,
@@ -1096,6 +1106,7 @@ fn execute_ability(
     ko_events: &mut EventWriter<UnitKoEvent>,
     battle_state: &ResMut<BattleStateRes>,
     game_data: &Res<GameData>,
+    mut sfx_events: Option<&mut EventWriter<PlaySfxEvent>>,
 ) {
     let caster_data = units.iter().find(|u| u.id == caster_id).cloned();
     let caster = match caster_data {
@@ -1127,6 +1138,9 @@ fn execute_ability(
                             amount: heal_amount,
                             revived: was_ko && target.is_alive(),
                         });
+                        if let Some(ref mut writer) = sfx_events {
+                            writer.send(PlaySfxEvent("heal".into()));
+                        }
                     }
                 }
                 TargetKind::AllAllies => {
@@ -1146,6 +1160,9 @@ fn execute_ability(
                                 revived: was_ko && ally.is_alive(),
                             });
                         }
+                    }
+                    if let Some(ref mut writer) = sfx_events {
+                        writer.send(PlaySfxEvent("heal".into()));
                     }
                 }
                 _ => {}
@@ -1188,6 +1205,11 @@ fn execute_ability(
                                 element: ability.element,
                                 was_blocked: result.was_blocked,
                             });
+                            if ability.ability_type == AbilityType::Psynergy
+                                && let Some(ref mut writer) = sfx_events
+                            {
+                                writer.send(PlaySfxEvent("magic_cast".into()));
+                            }
                             // Apply status from ability
                             if let Some(ref se) = ability.status_effect
                                 && let Some(battle_status) = convert_status_effect(se)
@@ -1246,6 +1268,11 @@ fn execute_ability(
                                 element: ability.element,
                                 was_blocked: result.was_blocked,
                             });
+                            if ability.ability_type == AbilityType::Psynergy
+                                && let Some(ref mut writer) = sfx_events
+                            {
+                                writer.send(PlaySfxEvent("magic_cast".into()));
+                            }
                             if let Some(ref se) = ability.status_effect
                                 && let Some(battle_status) = convert_status_effect(se)
                             {
@@ -1419,6 +1446,7 @@ pub fn victory_system(
     mut bestiary: Option<ResMut<crate::plugins::core_plugin::Bestiary>>,
     difficulty: Option<Res<DifficultySettings>>,
     mut achievements_res: Option<ResMut<crate::plugins::core_plugin::Achievements>>,
+    mut sfx_events: EventWriter<PlaySfxEvent>,
 ) {
     // Record defeats for all enemies in the bestiary
     if let Some(ref mut bestiary) = bestiary {
@@ -1493,6 +1521,13 @@ pub fn victory_system(
 
     let level_ups =
         rewards::distribute_rewards(&mut party_units, &battle_rewards, &ability_unlocks);
+
+    // Play level-up SFX for each unit that leveled up
+    if !level_ups.is_empty() {
+        for _lu in &level_ups {
+            sfx_events.send(PlaySfxEvent("level_up".into()));
+        }
+    }
 
     // Write updated stats back to ECS entities
     for updated in &party_units {
