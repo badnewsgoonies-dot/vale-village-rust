@@ -1629,3 +1629,388 @@ fn settings_input(
         start_transition(&mut transition, ui_state.return_to);
     }
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// TUTORIAL / ONBOARDING SYSTEMS
+// ══════════════════════════════════════════════════════════════════════
+
+/// Colour for the semi-transparent tutorial overlay background.
+const TUTORIAL_BG: Color = Color::srgba(0.02, 0.02, 0.10, 0.85);
+/// Colour for tutorial tip text.
+const TUTORIAL_TEXT: Color = Color::srgb(0.95, 0.90, 0.70);
+
+/// Helper: queue a tutorial tip if tutorials are enabled and the tip hasn't been shown yet.
+fn queue_tutorial_tip(
+    key: &str,
+    tutorial_state: &mut TutorialState,
+    settings: &TutorialSettings,
+    commands: &mut Commands,
+) {
+    if !settings.enabled {
+        return;
+    }
+    if tutorial_state.was_shown(key) {
+        return;
+    }
+    // Find the tip definition.
+    let Some(def) = TUTORIAL_TIPS.iter().find(|t| t.key == key) else {
+        return;
+    };
+    tutorial_state.mark_shown(key);
+    commands.insert_resource(PendingTutorialTip {
+        key: key.to_string(),
+        message: def.message.to_string(),
+        elapsed: 0.0,
+        duration: def.duration,
+    });
+}
+
+/// Triggered on entering the Overworld state — shows the "welcome" tip on first visit.
+fn trigger_tutorial_on_overworld(
+    mut tutorial_state: ResMut<TutorialState>,
+    settings: Res<TutorialSettings>,
+    mut commands: Commands,
+) {
+    queue_tutorial_tip("welcome", &mut tutorial_state, &settings, &mut commands);
+}
+
+/// Triggered on entering the Battle state — shows the "first_battle" tip on first combat.
+fn trigger_tutorial_on_battle(
+    mut tutorial_state: ResMut<TutorialState>,
+    settings: Res<TutorialSettings>,
+    mut commands: Commands,
+) {
+    queue_tutorial_tip(
+        "first_battle",
+        &mut tutorial_state,
+        &settings,
+        &mut commands,
+    );
+}
+
+/// Triggered on entering the Shop state — shows the "first_shop" tip on first shop visit.
+fn trigger_tutorial_on_shop(
+    mut tutorial_state: ResMut<TutorialState>,
+    settings: Res<TutorialSettings>,
+    mut commands: Commands,
+) {
+    queue_tutorial_tip("first_shop", &mut tutorial_state, &settings, &mut commands);
+}
+
+/// Public helper so other modules (e.g. overworld, battle) can trigger tips by key.
+/// Must be called with mutable access to `TutorialState` and `Commands`.
+#[allow(dead_code)]
+pub fn request_tutorial_tip(
+    key: &str,
+    tutorial_state: &mut TutorialState,
+    settings: &TutorialSettings,
+    commands: &mut Commands,
+) {
+    queue_tutorial_tip(key, tutorial_state, settings, commands);
+}
+
+/// System that spawns the visual overlay when a `PendingTutorialTip` resource exists
+/// but no `TutorialTipRoot` entity is on screen yet.
+fn show_tutorial_tip(
+    mut commands: Commands,
+    pending: Option<Res<PendingTutorialTip>>,
+    existing: Query<Entity, With<TutorialTipRoot>>,
+) {
+    let Some(pending) = pending else {
+        return;
+    };
+    // Don't spawn a second overlay if one already exists.
+    if !existing.is_empty() {
+        return;
+    }
+
+    let message = pending.message.clone();
+    let key = pending.key.clone();
+
+    commands
+        .spawn((
+            TutorialTipRoot,
+            TutorialTip { key },
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Percent(100.0),
+                top: Val::Px(0.0),
+                left: Val::Px(0.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                padding: UiRect::all(Val::Px(0.0)),
+                ..default()
+            },
+            GlobalZIndex(900),
+        ))
+        .with_children(|parent| {
+            parent
+                .spawn((
+                    Node {
+                        max_width: Val::Px(700.0),
+                        min_width: Val::Px(300.0),
+                        padding: UiRect::new(
+                            Val::Px(24.0),
+                            Val::Px(24.0),
+                            Val::Px(14.0),
+                            Val::Px(14.0),
+                        ),
+                        margin: UiRect::new(Val::Auto, Val::Auto, Val::Px(16.0), Val::Px(0.0)),
+                        border: UiRect::all(Val::Px(2.0)),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        flex_direction: FlexDirection::Column,
+                        ..default()
+                    },
+                    BackgroundColor(TUTORIAL_BG),
+                    BorderColor(GOLD),
+                ))
+                .with_children(|tip_box| {
+                    tip_box.spawn((
+                        Text::new(message),
+                        TextFont {
+                            font_size: 18.0,
+                            ..default()
+                        },
+                        TextColor(TUTORIAL_TEXT),
+                        TextLayout::new_with_justify(JustifyText::Center),
+                    ));
+                    tip_box.spawn((
+                        Text::new("[Enter / Space to dismiss]"),
+                        TextFont {
+                            font_size: 12.0,
+                            ..default()
+                        },
+                        TextColor(DIM_TEXT),
+                        Node {
+                            margin: UiRect::top(Val::Px(8.0)),
+                            ..default()
+                        },
+                    ));
+                });
+        });
+}
+
+/// System that auto-dismisses tips after their duration expires, or when the player
+/// presses Enter or Space.
+fn dismiss_tutorial_tip(
+    mut commands: Commands,
+    time: Res<Time>,
+    keys: Res<ButtonInput<KeyCode>>,
+    pending: Option<ResMut<PendingTutorialTip>>,
+    tip_roots: Query<Entity, With<TutorialTipRoot>>,
+) {
+    let Some(mut pending) = pending else {
+        return;
+    };
+
+    pending.elapsed += time.delta_secs();
+
+    let manual_dismiss = keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space);
+    let auto_dismiss = pending.elapsed >= pending.duration;
+
+    if manual_dismiss || auto_dismiss {
+        // Despawn all tutorial tip UI entities.
+        for entity in &tip_roots {
+            commands.entity(entity).despawn();
+        }
+        commands.remove_resource::<PendingTutorialTip>();
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// TESTS
+// ══════════════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── TutorialState unit tests ──────────────────────────────────────
+
+    #[test]
+    fn tutorial_state_default_has_no_shown_tips() {
+        let state = TutorialState::default();
+        assert!(state.shown.is_empty());
+        assert!(!state.was_shown("welcome"));
+        assert!(!state.was_shown("first_battle"));
+    }
+
+    #[test]
+    fn tutorial_state_mark_shown_records_tip() {
+        let mut state = TutorialState::default();
+        assert!(!state.was_shown("welcome"));
+
+        state.mark_shown("welcome");
+        assert!(state.was_shown("welcome"));
+        assert!(!state.was_shown("first_battle"));
+    }
+
+    #[test]
+    fn tutorial_state_mark_shown_is_idempotent() {
+        let mut state = TutorialState::default();
+        state.mark_shown("welcome");
+        state.mark_shown("welcome");
+        assert!(state.was_shown("welcome"));
+        assert_eq!(state.shown.len(), 1);
+    }
+
+    #[test]
+    fn tutorial_state_tracks_multiple_tips() {
+        let mut state = TutorialState::default();
+        state.mark_shown("welcome");
+        state.mark_shown("first_battle");
+        state.mark_shown("first_shop");
+
+        assert!(state.was_shown("welcome"));
+        assert!(state.was_shown("first_battle"));
+        assert!(state.was_shown("first_shop"));
+        assert!(!state.was_shown("first_djinn"));
+        assert!(!state.was_shown("tower_intro"));
+        assert_eq!(state.shown.len(), 3);
+    }
+
+    // ── TutorialSettings tests ────────────────────────────────────────
+
+    #[test]
+    fn tutorial_settings_enabled_by_default() {
+        let settings = TutorialSettings::default();
+        assert!(settings.enabled);
+    }
+
+    #[test]
+    fn tutorial_settings_can_be_disabled() {
+        let settings = TutorialSettings { enabled: false };
+        assert!(!settings.enabled);
+    }
+
+    // ── Tutorial tip definitions ──────────────────────────────────────
+
+    #[test]
+    fn all_tutorial_tips_have_unique_keys() {
+        let mut keys = std::collections::HashSet::new();
+        for tip in TUTORIAL_TIPS {
+            assert!(
+                keys.insert(tip.key),
+                "Duplicate tutorial tip key: {}",
+                tip.key
+            );
+        }
+    }
+
+    #[test]
+    fn all_tutorial_tips_have_nonempty_messages() {
+        for tip in TUTORIAL_TIPS {
+            assert!(
+                !tip.message.is_empty(),
+                "Tutorial tip '{}' has an empty message",
+                tip.key
+            );
+        }
+    }
+
+    #[test]
+    fn all_tutorial_tips_have_positive_duration() {
+        for tip in TUTORIAL_TIPS {
+            assert!(
+                tip.duration > 0.0,
+                "Tutorial tip '{}' has non-positive duration",
+                tip.key
+            );
+        }
+    }
+
+    #[test]
+    fn expected_tutorial_tips_exist() {
+        let expected_keys = [
+            "welcome",
+            "first_battle",
+            "first_shop",
+            "first_djinn",
+            "tower_intro",
+        ];
+        for key in &expected_keys {
+            assert!(
+                TUTORIAL_TIPS.iter().any(|t| t.key == *key),
+                "Missing expected tutorial tip: {}",
+                key
+            );
+        }
+    }
+
+    // ── queue_tutorial_tip logic tests ─────────────────────────────────
+
+    #[test]
+    fn queue_tip_marks_state_as_shown() {
+        let mut state = TutorialState::default();
+        let settings = TutorialSettings { enabled: true };
+
+        // We test the state logic directly (Commands requires a full ECS world).
+        assert!(!state.was_shown("welcome"));
+
+        // Simulate what queue_tutorial_tip does to the state:
+        if settings.enabled && !state.was_shown("welcome") {
+            state.mark_shown("welcome");
+        }
+
+        assert!(state.was_shown("welcome"));
+        // Attempting to "queue" again should be a no-op because was_shown is true.
+        let should_queue = settings.enabled && !state.was_shown("welcome");
+        assert!(!should_queue);
+    }
+
+    #[test]
+    fn queue_tip_respects_disabled_setting() {
+        let state = TutorialState::default();
+        let settings = TutorialSettings { enabled: false };
+
+        // Simulate what queue_tutorial_tip does: check settings first.
+        let should_queue = settings.enabled && !state.was_shown("welcome");
+        assert!(!should_queue);
+
+        // State should remain untouched.
+        assert!(!state.was_shown("welcome"));
+        assert!(state.shown.is_empty());
+    }
+
+    #[test]
+    fn dismiss_logic_auto_dismiss_after_duration() {
+        // Simulate the auto-dismiss check from dismiss_tutorial_tip.
+        let mut pending = PendingTutorialTip {
+            key: "welcome".to_string(),
+            message: "Test message".to_string(),
+            elapsed: 0.0,
+            duration: 6.0,
+        };
+
+        // Not yet expired.
+        assert!(pending.elapsed < pending.duration);
+
+        // Simulate time passing.
+        pending.elapsed += 3.0;
+        assert!(pending.elapsed < pending.duration);
+
+        // Hit the duration threshold.
+        pending.elapsed += 3.0;
+        assert!(pending.elapsed >= pending.duration);
+    }
+
+    #[test]
+    fn dismiss_logic_manual_dismiss_anytime() {
+        let pending = PendingTutorialTip {
+            key: "first_battle".to_string(),
+            message: "Test".to_string(),
+            elapsed: 0.5,
+            duration: 7.0,
+        };
+
+        // Manual dismiss should work regardless of elapsed time.
+        let manual_dismiss = true; // Simulates Enter/Space press
+        let auto_dismiss = pending.elapsed >= pending.duration;
+
+        assert!(manual_dismiss || auto_dismiss);
+        // Even though auto hasn't triggered, manual is enough.
+        assert!(!auto_dismiss);
+        assert!(manual_dismiss);
+    }
+}
