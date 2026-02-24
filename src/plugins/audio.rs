@@ -77,6 +77,7 @@ impl Plugin for GameAudioPlugin {
             .insert_resource(MusicTracks::default())
             .insert_resource(SfxHandles::default())
             .add_event::<PlaySfxEvent>()
+            .add_systems(OnEnter(GameState::Loading), load_audio_assets)
             .add_systems(OnEnter(GameState::MainMenu), play_title_theme_on_enter)
             .add_systems(OnEnter(GameState::Overworld), play_overworld_theme_on_enter)
             .add_systems(OnEnter(GameState::Battle), play_battle_theme_on_enter)
@@ -217,4 +218,36 @@ pub fn stop_bgm(commands: &mut Commands, bgm_query: &Query<Entity, With<BgmMarke
     for entity in bgm_query.iter() {
         commands.entity(entity).despawn();
     }
+}
+
+// ---------------------------------------------------------------------------
+// Asset loading
+// ---------------------------------------------------------------------------
+
+/// Loads all audio assets from `assets/audio/` into the `MusicTracks` and
+/// `SfxHandles` resources. Runs once on `OnEnter(GameState::Loading)`.
+fn load_audio_assets(
+    asset_server: Res<AssetServer>,
+    mut tracks: ResMut<MusicTracks>,
+    mut sfx: ResMut<SfxHandles>,
+) {
+    // Music tracks
+    tracks.title_theme = Some(asset_server.load("audio/music/title_theme.ogg"));
+    tracks.overworld_theme = Some(asset_server.load("audio/music/overworld_theme.ogg"));
+    tracks.battle_theme = Some(asset_server.load("audio/music/battle_theme.ogg"));
+    tracks.boss_theme = Some(asset_server.load("audio/music/boss_theme.ogg"));
+    tracks.shop_theme = Some(asset_server.load("audio/music/shop_theme.ogg"));
+    tracks.victory_fanfare = Some(asset_server.load("audio/music/victory_fanfare.ogg"));
+
+    // SFX handles
+    sfx.menu_select = Some(asset_server.load("audio/sfx/menu_select.ogg"));
+    sfx.menu_cancel = Some(asset_server.load("audio/sfx/menu_cancel.ogg"));
+    sfx.attack_hit = Some(asset_server.load("audio/sfx/attack_hit.ogg"));
+    sfx.magic_cast = Some(asset_server.load("audio/sfx/magic_cast.ogg"));
+    sfx.heal = Some(asset_server.load("audio/sfx/heal.ogg"));
+    sfx.level_up = Some(asset_server.load("audio/sfx/level_up.ogg"));
+    sfx.item_pickup = Some(asset_server.load("audio/sfx/item_pickup.ogg"));
+    sfx.door_open = Some(asset_server.load("audio/sfx/door_open.ogg"));
+
+    info!("Audio assets loaded: 6 music tracks, 8 SFX handles");
 }

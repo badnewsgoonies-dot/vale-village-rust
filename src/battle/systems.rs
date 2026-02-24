@@ -9,7 +9,12 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use crate::battle::{ai, damage, djinn, rewards, status, turn_order, types::*};
-use crate::plugins::core_plugin::GameData;
+use crate::components::battle::PartyCombatant;
+use crate::data::items::ItemCategory;
+use crate::plugins::audio::PlaySfxEvent;
+use crate::plugins::core_plugin::{
+    DifficultySettings, GameData, GameState, Party, achievements, story,
+};
 
 // ---------------------------------------------------------------------------
 // Resources
@@ -26,9 +31,221 @@ impl Default for BattleRng {
 }
 
 // ---------------------------------------------------------------------------
+// Spawn party BattleUnit entities when entering battle
+// ---------------------------------------------------------------------------
+
+/// Creates BattleUnit entities for each active party member, applying
+/// equipment stat bonuses from Party.equipment -> GameData.equipment.
+pub fn spawn_party_battle_units(
+    mut commands: Commands,
+    party: Res<Party>,
+    game_data: Res<GameData>,
+    mut djinn_state: ResMut<DjinnBattleRes>,
+) {
+    // Initialize djinn trackers from party assignments
+    djinn_state.trackers.clear();
+    for djinn_id in party.djinn_assignments.keys() {
+        if let Some(djinn_def) = game_data.djinn.get(djinn_id) {
+            // Find the owner's battle unit index (will be assigned once units spawn)
+            // For now, store 0 and fix up after spawning
+            djinn_state
+                .trackers
+                .push(crate::battle::types::DjinnTracker {
+                    djinn_id: djinn_id.clone(),
+                    state: crate::battle::types::DjinnBattleState::Set,
+                    owner_unit_id: 0, // fixed up below
+                    last_activated_turn: 0,
+                    recovery_turns_remaining: 0,
+                });
+            let _ = djinn_def; // used for validation
+        }
+    }
+
+    for (i, unit_id) in party.active.iter().enumerate() {
+        let Some(def) = game_data.units.get(unit_id) else {
+            continue;
+        };
+
+        // Retrieve persisted level/XP or start at level 1
+        let (level, xp) = party.unit_levels.get(unit_id).copied().unwrap_or((1, 0));
+        let lvl = (level as i32 - 1).max(0);
+
+        // Calculate level-scaled stats (base + growth * (level - 1))
+        let base_hp = def.base_hp + def.growth.hp * lvl;
+        let base_pp = def.base_pp + def.growth.pp * lvl;
+        let base_atk = def.base_atk + def.growth.atk * lvl;
+        let base_def = def.base_def + def.growth.def * lvl;
+        let base_mag = def.base_mag + def.growth.mag * lvl;
+        let base_spd = def.base_spd + def.growth.spd * lvl;
+
+        // Sum equipment stat bonuses
+        let (eq_hp, eq_pp, eq_atk, eq_def, eq_mag, eq_spd) =
+            equipment_stat_bonuses(unit_id, &party, &game_data);
+
+        let hp = base_hp + eq_hp;
+        let pp = base_pp + eq_pp;
+        let atk = base_atk + eq_atk;
+        let defense = base_def + eq_def;
+        let mag = base_mag + eq_mag;
+        let spd = base_spd + eq_spd;
+
+        // Collect unlocked abilities for this level
+        let ability_ids: Vec<String> = def
+            .abilities
+            .iter()
+            .filter(|a| a.unlock_level <= level)
+            .map(|a| a.ability_id.clone())
+            .collect();
+
+        // Also collect abilities unlocked by equipment
+        let mut equip_abilities = equipment_granted_abilities(unit_id, &party, &game_data);
+
+        let mut all_abilities = ability_ids;
+        all_abilities.append(&mut equip_abilities);
+
+        // Collect djinn assigned to this unit and apply set bonuses
+        let unit_djinn_ids: Vec<String> = party
+            .djinn_assignments
+            .iter()
+            .filter(|(_, owner)| owner.as_str() == unit_id)
+            .map(|(djinn_id, _)| djinn_id.clone())
+            .collect();
+
+        // Sum set bonuses from all assigned djinn
+        let (mut dj_atk, mut dj_def, mut dj_mag, mut dj_spd, mut dj_hp, mut dj_pp) =
+            (0i32, 0i32, 0i32, 0i32, 0i32, 0i32);
+        for djinn_id in &unit_djinn_ids {
+            if let Some(djinn_def) = game_data.djinn.get(djinn_id) {
+                dj_atk += djinn_def.set_bonus.atk;
+                dj_def += djinn_def.set_bonus.def;
+                dj_mag += djinn_def.set_bonus.mag;
+                dj_spd += djinn_def.set_bonus.spd;
+                dj_hp += djinn_def.set_bonus.hp;
+                dj_pp += djinn_def.set_bonus.pp;
+                // Add djinn-granted abilities
+                all_abilities.extend(djinn_def.granted_ability_ids.clone());
+            }
+        }
+
+        let hp = hp + dj_hp;
+        let pp = pp + dj_pp;
+        let atk = atk + dj_atk;
+        let defense = defense + dj_def;
+        let mag = mag + dj_mag;
+        let spd = spd + dj_spd;
+
+        // Respect persisted HP/PP if available (clamped to current max)
+        let (current_hp, current_pp) = party.unit_hp_pp.get(unit_id).copied().unwrap_or((hp, pp));
+        let current_hp = current_hp.clamp(1, hp); // at least 1 HP to enter battle alive
+        let current_pp = current_pp.clamp(0, pp);
+
+        let battle_id = (i + 1) as u32;
+
+        // Fix up djinn tracker owner IDs
+        for djinn_id in &unit_djinn_ids {
+            if let Some(tracker) = djinn_state
+                .trackers
+                .iter_mut()
+                .find(|t| t.djinn_id == *djinn_id)
+            {
+                tracker.owner_unit_id = battle_id;
+            }
+        }
+
+        let battle_unit = BattleUnit {
+            id: battle_id,
+            name: def.name.clone(),
+            side: UnitSide::Player,
+            element: def.element,
+            level,
+            hp: current_hp,
+            max_hp: hp,
+            pp: current_pp,
+            max_pp: pp,
+            atk,
+            def: defense,
+            mag,
+            spd,
+            luck: 5 + i32::from(level / 2),
+            status_effects: Vec::new(),
+            ability_ids: all_abilities,
+            djinn_ids: unit_djinn_ids,
+            damage_taken: 0,
+            damage_dealt: 0,
+            xp,
+            growth_rates: GrowthRates {
+                hp: def.growth.hp,
+                pp: def.growth.pp,
+                atk: def.growth.atk,
+                def: def.growth.def,
+                mag: def.growth.mag,
+                spd: def.growth.spd,
+            },
+        };
+
+        commands.spawn((PartyCombatant, battle_unit));
+    }
+}
+
+/// Sum stat bonuses from all equipment slots for a given unit.
+fn equipment_stat_bonuses(
+    unit_id: &str,
+    party: &Party,
+    game_data: &GameData,
+) -> (i32, i32, i32, i32, i32, i32) {
+    let mut hp = 0;
+    let mut pp = 0;
+    let mut atk = 0;
+    let mut def = 0;
+    let mut mag = 0;
+    let mut spd = 0;
+
+    if let Some(slots) = party.equipment.get(unit_id) {
+        for eq_id in slots.values() {
+            if let Some(eq_def) = game_data.equipment.get(eq_id) {
+                hp += eq_def.stat_bonus.hp;
+                pp += eq_def.stat_bonus.pp;
+                atk += eq_def.stat_bonus.atk;
+                def += eq_def.stat_bonus.def;
+                mag += eq_def.stat_bonus.mag;
+                spd += eq_def.stat_bonus.spd;
+            }
+        }
+    }
+
+    (hp, pp, atk, def, mag, spd)
+}
+
+/// Collect ability IDs granted by equipped items.
+fn equipment_granted_abilities(unit_id: &str, party: &Party, game_data: &GameData) -> Vec<String> {
+    let mut abilities = Vec::new();
+    if let Some(slots) = party.equipment.get(unit_id) {
+        for eq_id in slots.values() {
+            if let Some(eq_def) = game_data.equipment.get(eq_id)
+                && let Some(ref ability_id) = eq_def.unlocks_ability
+            {
+                abilities.push(ability_id.clone());
+            }
+        }
+    }
+    abilities
+}
+
+/// Despawn party BattleUnit entities when leaving battle.
+pub fn despawn_party_battle_units(
+    mut commands: Commands,
+    query: Query<Entity, With<PartyCombatant>>,
+) {
+    for entity in &query {
+        commands.entity(entity).despawn();
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Battle enter / exit
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub fn battle_enter_system(
     mut commands: Commands,
     mut start_events: EventReader<StartBattleEvent>,
@@ -36,6 +253,9 @@ pub fn battle_enter_system(
     mut cmd_state: ResMut<CommandSelectState>,
     mut rng: ResMut<BattleRng>,
     party_query: Query<&BattleUnit>,
+    game_data: Res<GameData>,
+    mut bestiary: Option<ResMut<crate::plugins::core_plugin::Bestiary>>,
+    difficulty: Option<Res<DifficultySettings>>,
 ) {
     for event in start_events.read() {
         *battle_state = BattleStateRes {
@@ -44,8 +264,34 @@ pub fn battle_enter_system(
             ..Default::default()
         };
 
+        // Scale enemy stats by difficulty multiplier
+        let stat_mult = difficulty
+            .as_ref()
+            .map(|d| d.enemy_stat_multiplier())
+            .unwrap_or(1.0);
         for enemy in &event.enemy_units {
-            commands.spawn(enemy.clone());
+            let mut scaled = enemy.clone();
+            if scaled.side == UnitSide::Enemy {
+                scaled.hp = (scaled.hp as f32 * stat_mult) as i32;
+                scaled.max_hp = (scaled.max_hp as f32 * stat_mult) as i32;
+                scaled.atk = (scaled.atk as f32 * stat_mult) as i32;
+                scaled.def = (scaled.def as f32 * stat_mult) as i32;
+            }
+            commands.spawn(scaled);
+        }
+
+        // Record enemy encounters in the bestiary
+        if let Some(ref mut bestiary) = bestiary {
+            for enemy in &event.enemy_units {
+                // Reverse-lookup the enemy registry ID by matching on name
+                if let Some((enemy_id, _)) = game_data
+                    .enemies
+                    .iter()
+                    .find(|(_, def)| def.name == enemy.name)
+                {
+                    bestiary.record_encounter(enemy_id, &enemy.name);
+                }
+            }
         }
 
         let all_units: Vec<BattleUnit> = party_query
@@ -86,6 +332,7 @@ pub fn command_select_system(
     mut next_phase: ResMut<NextState<BattlePhase>>,
     units: Query<&BattleUnit>,
     game_data: Res<GameData>,
+    party: Res<Party>,
 ) {
     let player_units: Vec<&BattleUnit> = units
         .iter()
@@ -167,12 +414,12 @@ pub fn command_select_system(
             {
                 cmd_state.cursor_index += 1;
             }
-            if keyboard.just_pressed(KeyCode::Enter) {
-                if let Some(ability) = affordable.get(cmd_state.cursor_index) {
-                    cmd_state.selected_ability = Some(ability.id.clone());
-                    cmd_state.menu = CommandMenu::TargetSelect;
-                    cmd_state.cursor_index = 0;
-                }
+            if keyboard.just_pressed(KeyCode::Enter)
+                && let Some(ability) = affordable.get(cmd_state.cursor_index)
+            {
+                cmd_state.selected_ability = Some(ability.id.clone());
+                cmd_state.menu = CommandMenu::TargetSelect;
+                cmd_state.cursor_index = 0;
             }
         }
         CommandMenu::TargetSelect => {
@@ -197,21 +444,21 @@ pub fn command_select_system(
             {
                 cmd_state.cursor_index += 1;
             }
-            if keyboard.just_pressed(KeyCode::Enter) {
-                if let Some(target) = targets.get(cmd_state.cursor_index) {
-                    let action = if let Some(ref aid) = cmd_state.selected_ability {
-                        BattleAction::Ability {
-                            ability_id: aid.clone(),
-                            target_id: target.id,
-                        }
-                    } else {
-                        BattleAction::Attack {
-                            target_id: target.id,
-                        }
-                    };
-                    set_pending_action(&mut cmd_state, action);
-                    cmd_state.selected_ability = None;
-                }
+            if keyboard.just_pressed(KeyCode::Enter)
+                && let Some(target) = targets.get(cmd_state.cursor_index)
+            {
+                let action = if let Some(ref aid) = cmd_state.selected_ability {
+                    BattleAction::Ability {
+                        ability_id: aid.clone(),
+                        target_id: target.id,
+                    }
+                } else {
+                    BattleAction::Attack {
+                        target_id: target.id,
+                    }
+                };
+                set_pending_action(&mut cmd_state, action);
+                cmd_state.selected_ability = None;
             }
         }
         CommandMenu::DjinnSelect => {
@@ -234,18 +481,97 @@ pub fn command_select_system(
             {
                 cmd_state.cursor_index += 1;
             }
-            if keyboard.just_pressed(KeyCode::Enter) {
-                if let Some(djinn_id) = unit.djinn_ids.get(cmd_state.cursor_index) {
-                    cmd_state.selected_djinn = Some(djinn_id.clone());
-                    cmd_state.menu = CommandMenu::TargetSelect;
-                    cmd_state.cursor_index = 0;
-                }
+            if keyboard.just_pressed(KeyCode::Enter)
+                && let Some(djinn_id) = unit.djinn_ids.get(cmd_state.cursor_index)
+            {
+                cmd_state.selected_djinn = Some(djinn_id.clone());
+                cmd_state.menu = CommandMenu::TargetSelect;
+                cmd_state.cursor_index = 0;
             }
         }
         CommandMenu::ItemSelect => {
             if keyboard.just_pressed(KeyCode::Escape) {
                 cmd_state.menu = CommandMenu::TopLevel;
                 cmd_state.cursor_index = 0;
+                return;
+            }
+
+            // Build a deduplicated list of consumable items from party inventory.
+            let mut seen = std::collections::HashSet::new();
+            let consumable_ids: Vec<String> = party
+                .inventory
+                .iter()
+                .filter(|id| {
+                    game_data
+                        .items
+                        .get(*id)
+                        .is_some_and(|def| def.category == ItemCategory::Consumable)
+                })
+                .filter(|id| seen.insert((*id).clone()))
+                .cloned()
+                .collect();
+
+            if consumable_ids.is_empty() {
+                cmd_state.menu = CommandMenu::TopLevel;
+                cmd_state.cursor_index = 0;
+                return;
+            }
+
+            if keyboard.just_pressed(KeyCode::ArrowUp) && cmd_state.cursor_index > 0 {
+                cmd_state.cursor_index -= 1;
+            }
+            if keyboard.just_pressed(KeyCode::ArrowDown)
+                && cmd_state.cursor_index < consumable_ids.len() - 1
+            {
+                cmd_state.cursor_index += 1;
+            }
+            if keyboard.just_pressed(KeyCode::Enter)
+                && let Some(item_id) = consumable_ids.get(cmd_state.cursor_index)
+                && let Some(item_def) = game_data.items.get(item_id)
+            {
+                let effect = &item_def.effect;
+                let unit = player_units[cmd_state.selecting_unit_index];
+
+                let is_offensive = effect.damage_amount > 0;
+                let is_revive = effect.revive;
+
+                if is_offensive {
+                    // Target first alive enemy
+                    let target = units
+                        .iter()
+                        .find(|u| u.side == UnitSide::Enemy && u.is_alive());
+                    if let Some(target) = target {
+                        set_pending_action(
+                            &mut cmd_state,
+                            BattleAction::Item {
+                                item_id: item_id.clone(),
+                                target_id: target.id,
+                            },
+                        );
+                    }
+                } else if is_revive {
+                    // Target first KO'd ally, or fall back to self
+                    let ko_ally = units
+                        .iter()
+                        .find(|u| u.side == UnitSide::Player && u.is_ko());
+                    let target_id = ko_ally.map(|u| u.id).unwrap_or(unit.id);
+                    set_pending_action(
+                        &mut cmd_state,
+                        BattleAction::Item {
+                            item_id: item_id.clone(),
+                            target_id,
+                        },
+                    );
+                } else {
+                    // Healing / PP / status removal: target the selecting unit
+                    set_pending_action(
+                        &mut cmd_state,
+                        BattleAction::Item {
+                            item_id: item_id.clone(),
+                            target_id: unit.id,
+                        },
+                    );
+                }
             }
         }
     }
@@ -295,6 +621,7 @@ pub fn ai_select_system(
 // Resolution
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub fn resolution_system(
     mut battle_state: ResMut<BattleStateRes>,
     mut rng: ResMut<BattleRng>,
@@ -303,8 +630,12 @@ pub fn resolution_system(
     mut damage_events: EventWriter<DamageEvent>,
     mut heal_events: EventWriter<HealEvent>,
     mut ko_events: EventWriter<UnitKoEvent>,
+    mut status_events: EventWriter<StatusAppliedEvent>,
     mut djinn_state: ResMut<DjinnBattleRes>,
     game_data: Res<GameData>,
+    mut party: ResMut<Party>,
+    difficulty: Option<Res<DifficultySettings>>,
+    mut sfx_events: EventWriter<PlaySfxEvent>,
 ) {
     let idx = battle_state.current_actor_index;
 
@@ -385,6 +716,7 @@ pub fn resolution_system(
                 &mut damage_events,
                 &mut ko_events,
                 &battle_state,
+                Some(&mut sfx_events),
             );
         }
         BattleAction::Ability {
@@ -402,13 +734,19 @@ pub fn resolution_system(
                 &mut ko_events,
                 &battle_state,
                 &game_data,
+                Some(&mut sfx_events),
             );
         }
         BattleAction::Defend => {}
         BattleAction::Flee => {
             let avg_player_spd = avg_speed(&units, UnitSide::Player);
             let avg_enemy_spd = avg_speed(&units, UnitSide::Enemy);
-            let chance = rewards::flee_chance(avg_player_spd, avg_enemy_spd);
+            let base_chance = rewards::flee_chance(avg_player_spd, avg_enemy_spd);
+            let flee_bonus = difficulty
+                .as_ref()
+                .map(|d| d.flee_chance_bonus())
+                .unwrap_or(0.0);
+            let chance = (base_chance + flee_bonus).clamp(0.10, 0.90);
             if rng.0.r#gen::<f32>() < chance {
                 battle_state.fled = true;
                 next_phase.set(BattlePhase::Inactive);
@@ -427,39 +765,225 @@ pub fn resolution_system(
                 &mut damage_events,
                 &mut ko_events,
                 &battle_state,
+                Some(&mut sfx_events),
             );
         }
         BattleAction::Summon { djinn_ids } => {
-            if let Ok(summon_damage) =
-                djinn::summon_djinn(&djinn_ids, battle_state.turn_number, &mut djinn_state)
-            {
-                let enemy_ids: Vec<u32> = units
-                    .iter()
-                    .filter(|u| u.side == UnitSide::Enemy && u.is_alive())
-                    .map(|u| u.id)
-                    .collect();
-                for eid in enemy_ids {
-                    if let Some(mut target) = units.iter_mut().find(|u| u.id == eid) {
-                        let result = damage::apply_damage_with_shields(&mut target, summon_damage);
-                        damage_events.send(DamageEvent {
-                            attacker_id: actor_id,
-                            target_id: eid,
-                            damage: result.actual_damage,
-                            element: None,
-                            was_blocked: result.was_blocked,
+            // Status chance for summon effects (per-enemy roll).
+            const SUMMON_STATUS_CHANCE: f32 = 0.75;
+
+            if let Ok(summon_result) = djinn::summon_djinn_enhanced(
+                &djinn_ids,
+                battle_state.turn_number,
+                &mut djinn_state,
+                &game_data.djinn,
+            ) {
+                // Apply damage to all alive enemies
+                if summon_result.total_damage > 0 {
+                    let enemy_ids: Vec<u32> = units
+                        .iter()
+                        .filter(|u| u.side == UnitSide::Enemy && u.is_alive())
+                        .map(|u| u.id)
+                        .collect();
+                    for eid in enemy_ids {
+                        if let Some(mut target) = units.iter_mut().find(|u| u.id == eid) {
+                            let result = damage::apply_damage_with_shields(
+                                &mut target,
+                                summon_result.total_damage,
+                            );
+                            damage_events.send(DamageEvent {
+                                attacker_id: actor_id,
+                                target_id: eid,
+                                damage: result.actual_damage,
+                                element: None,
+                                was_blocked: result.was_blocked,
+                            });
+                            if target.is_ko() {
+                                ko_events.send(UnitKoEvent {
+                                    unit_id: target.id,
+                                    unit_name: target.name.clone(),
+                                    side: target.side,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // Apply healing to all alive party members
+                if summon_result.total_healing > 0 {
+                    let ally_ids: Vec<u32> = units
+                        .iter()
+                        .filter(|u| u.side == UnitSide::Player && u.is_alive())
+                        .map(|u| u.id)
+                        .collect();
+                    for aid in ally_ids {
+                        if let Some(mut ally) = units.iter_mut().find(|u| u.id == aid) {
+                            let old_hp = ally.hp;
+                            damage::apply_healing(&mut ally, summon_result.total_healing, false);
+                            let healed = ally.hp - old_hp;
+                            heal_events.send(HealEvent {
+                                source_id: actor_id,
+                                target_id: aid,
+                                amount: healed,
+                                revived: false,
+                            });
+                        }
+                    }
+                }
+
+                // Apply stat buffs to the caster
+                for (stat_name, amount) in &summon_result.stat_buffs {
+                    let stat = match stat_name.as_str() {
+                        "atk" => StatKind::Atk,
+                        "def" => StatKind::Def,
+                        "mag" => StatKind::Mag,
+                        "spd" => StatKind::Spd,
+                        _ => continue,
+                    };
+                    let buff_effect = if *amount > 0 {
+                        BattleStatusEffect::Buff {
+                            stat,
+                            modifier: *amount,
+                            duration: 3,
+                        }
+                    } else {
+                        BattleStatusEffect::Debuff {
+                            stat,
+                            modifier: *amount,
+                            duration: 3,
+                        }
+                    };
+                    if let Some(mut actor) = units.iter_mut().find(|u| u.id == actor_id) {
+                        let applied = status::apply_status_to_unit(&mut actor, buff_effect.clone());
+                        status_events.send(StatusAppliedEvent {
+                            target_id: actor_id,
+                            status: buff_effect,
+                            was_immune: !applied,
                         });
-                        if target.is_ko() {
-                            ko_events.send(UnitKoEvent {
-                                unit_id: target.id,
-                                unit_name: target.name.clone(),
-                                side: target.side,
+                    }
+                }
+
+                // Apply status effects to enemies with a chance roll
+                for (effect_type, duration) in &summon_result.status_inflicts {
+                    let battle_status = match effect_type.as_str() {
+                        "poison" => BattleStatusEffect::Poison {
+                            duration: *duration as i32,
+                        },
+                        "burn" => BattleStatusEffect::Burn {
+                            duration: *duration as i32,
+                        },
+                        "freeze" => BattleStatusEffect::Freeze {
+                            duration: *duration as i32,
+                        },
+                        "paralyze" => BattleStatusEffect::Paralyze {
+                            duration: *duration as i32,
+                        },
+                        "stun" => BattleStatusEffect::Stun {
+                            duration: *duration as i32,
+                        },
+                        "blind" => BattleStatusEffect::Blind {
+                            duration: *duration as i32,
+                        },
+                        _ => continue,
+                    };
+                    let enemy_ids: Vec<u32> = units
+                        .iter()
+                        .filter(|u| u.side == UnitSide::Enemy && u.is_alive())
+                        .map(|u| u.id)
+                        .collect();
+                    for eid in enemy_ids {
+                        // Roll against status chance for each enemy
+                        if rng.0.r#gen::<f32>() < SUMMON_STATUS_CHANCE
+                            && let Some(mut target) = units.iter_mut().find(|u| u.id == eid)
+                        {
+                            let applied =
+                                status::apply_status_to_unit(&mut target, battle_status.clone());
+                            status_events.send(StatusAppliedEvent {
+                                target_id: eid,
+                                status: battle_status.clone(),
+                                was_immune: !applied,
                             });
                         }
                     }
                 }
             }
         }
-        BattleAction::Item { .. } => { /* stub */ }
+        BattleAction::Item { item_id, target_id } => {
+            if let Some(item_def) = game_data.items.get(&item_id).cloned() {
+                // Remove one instance from party inventory
+                if let Some(pos) = party.inventory.iter().position(|id| id == &item_id) {
+                    party.inventory.remove(pos);
+                }
+
+                let effect = &item_def.effect;
+
+                // Apply healing / PP restoration
+                if (effect.hp_restore > 0 || effect.pp_restore > 0)
+                    && let Some(mut target) = units.iter_mut().find(|u| u.id == target_id)
+                {
+                    if effect.revive && target.is_ko() {
+                        target.hp = effect.hp_restore.min(target.max_hp);
+                        heal_events.send(HealEvent {
+                            source_id: actor_id,
+                            target_id,
+                            amount: target.hp,
+                            revived: true,
+                        });
+                    } else if target.is_alive() {
+                        let old_hp = target.hp;
+                        target.hp = (target.hp + effect.hp_restore).min(target.max_hp);
+                        target.pp = (target.pp + effect.pp_restore).min(target.max_pp);
+                        let healed = target.hp - old_hp;
+                        heal_events.send(HealEvent {
+                            source_id: actor_id,
+                            target_id,
+                            amount: healed,
+                            revived: false,
+                        });
+                    }
+                }
+
+                // Apply status removal
+                if !effect.removes_status.is_empty()
+                    && let Some(mut target) = units.iter_mut().find(|u| u.id == target_id)
+                {
+                    target.status_effects.retain(|se| {
+                        let kind_str = match se.kind() {
+                            StatusKind::Poison => "poison",
+                            StatusKind::Burn => "burn",
+                            StatusKind::Freeze => "freeze",
+                            StatusKind::Paralyze => "paralyze",
+                            StatusKind::Stun => "stun",
+                            StatusKind::Blind => "blind",
+                            _ => return true,
+                        };
+                        !effect.removes_status.iter().any(|r| r == kind_str)
+                    });
+                }
+
+                // Apply damage (offensive items)
+                if effect.damage_amount > 0
+                    && let Some(mut target) = units.iter_mut().find(|u| u.id == target_id)
+                {
+                    let result =
+                        damage::apply_damage_with_shields(&mut target, effect.damage_amount);
+                    damage_events.send(DamageEvent {
+                        attacker_id: actor_id,
+                        target_id,
+                        damage: result.actual_damage,
+                        element: effect.damage_element,
+                        was_blocked: result.was_blocked,
+                    });
+                    if target.is_ko() {
+                        ko_events.send(UnitKoEvent {
+                            unit_id: target.id,
+                            unit_name: target.name.clone(),
+                            side: target.side,
+                        });
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -476,6 +1000,7 @@ fn avg_speed(units: &Query<&mut BattleUnit>, side: UnitSide) -> f32 {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_basic_attack(
     attacker_id: u32,
     target_id: u32,
@@ -484,6 +1009,7 @@ fn execute_basic_attack(
     damage_events: &mut EventWriter<DamageEvent>,
     ko_events: &mut EventWriter<UnitKoEvent>,
     battle_state: &ResMut<BattleStateRes>,
+    mut sfx_events: Option<&mut EventWriter<PlaySfxEvent>>,
 ) {
     let attacker_data = units.iter().find(|u| u.id == attacker_id).cloned();
     let attacker = match attacker_data {
@@ -522,13 +1048,31 @@ fn execute_basic_attack(
     };
 
     if let Some(mut target) = units.iter_mut().find(|u| u.id == target_id) {
-        let dmg = damage::calculate_physical_damage(
+        // Accuracy check — miss if blind or unlucky
+        if !damage::check_accuracy(&attacker, &target, &mut rng.0) {
+            damage_events.send(DamageEvent {
+                attacker_id,
+                target_id,
+                damage: 0,
+                element: Some(attacker.element),
+                was_blocked: false,
+            });
+            return;
+        }
+
+        let mut dmg = damage::calculate_physical_damage(
             &attacker,
             &target,
             &basic_attack,
             target_defending,
             &mut rng.0,
         );
+
+        // Critical hit check
+        if damage::calculate_crit(&attacker, &mut rng.0) {
+            dmg = (dmg as f32 * 1.5) as i32;
+        }
+
         let result = damage::apply_damage_with_shields(&mut target, dmg);
         damage_events.send(DamageEvent {
             attacker_id,
@@ -537,6 +1081,9 @@ fn execute_basic_attack(
             element: Some(attacker.element),
             was_blocked: result.was_blocked,
         });
+        if let Some(ref mut writer) = sfx_events {
+            writer.send(PlaySfxEvent("attack_hit".into()));
+        }
         if target.is_ko() {
             ko_events.send(UnitKoEvent {
                 unit_id: target.id,
@@ -547,6 +1094,7 @@ fn execute_basic_attack(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_ability(
     caster_id: u32,
     ability_id: &str,
@@ -558,6 +1106,7 @@ fn execute_ability(
     ko_events: &mut EventWriter<UnitKoEvent>,
     battle_state: &ResMut<BattleStateRes>,
     game_data: &Res<GameData>,
+    mut sfx_events: Option<&mut EventWriter<PlaySfxEvent>>,
 ) {
     let caster_data = units.iter().find(|u| u.id == caster_id).cloned();
     let caster = match caster_data {
@@ -589,6 +1138,9 @@ fn execute_ability(
                             amount: heal_amount,
                             revived: was_ko && target.is_alive(),
                         });
+                        if let Some(ref mut writer) = sfx_events {
+                            writer.send(PlaySfxEvent("heal".into()));
+                        }
                     }
                 }
                 TargetKind::AllAllies => {
@@ -609,6 +1161,9 @@ fn execute_ability(
                             });
                         }
                     }
+                    if let Some(ref mut writer) = sfx_events {
+                        writer.send(PlaySfxEvent("heal".into()));
+                    }
                 }
                 _ => {}
             }
@@ -622,33 +1177,52 @@ fn execute_ability(
             match ability.targets {
                 TargetKind::SingleEnemy | TargetKind::SingleAlly | TargetKind::OneSelf => {
                     if let Some(mut target) = units.iter_mut().find(|u| u.id == target_id) {
-                        let dmg = damage::calculate_damage(
-                            &caster,
-                            &target,
-                            &ability,
-                            target_defending,
-                            &mut rng.0,
-                        );
-                        let result = damage::apply_damage_with_shields(&mut target, dmg);
-                        damage_events.send(DamageEvent {
-                            attacker_id: caster_id,
-                            target_id,
-                            damage: result.actual_damage,
-                            element: ability.element,
-                            was_blocked: result.was_blocked,
-                        });
-                        // Apply status from ability
-                        if let Some(ref se) = ability.status_effect {
-                            if let Some(battle_status) = convert_status_effect(se) {
+                        // Accuracy check for offensive abilities
+                        if !damage::check_accuracy(&caster, &target, &mut rng.0) {
+                            damage_events.send(DamageEvent {
+                                attacker_id: caster_id,
+                                target_id,
+                                damage: 0,
+                                element: ability.element,
+                                was_blocked: false,
+                            });
+                        } else {
+                            let mut dmg = damage::calculate_damage(
+                                &caster,
+                                &target,
+                                &ability,
+                                target_defending,
+                                &mut rng.0,
+                            );
+                            if damage::calculate_crit(&caster, &mut rng.0) {
+                                dmg = (dmg as f32 * 1.5) as i32;
+                            }
+                            let result = damage::apply_damage_with_shields(&mut target, dmg);
+                            damage_events.send(DamageEvent {
+                                attacker_id: caster_id,
+                                target_id,
+                                damage: result.actual_damage,
+                                element: ability.element,
+                                was_blocked: result.was_blocked,
+                            });
+                            if ability.ability_type == AbilityType::Psynergy
+                                && let Some(ref mut writer) = sfx_events
+                            {
+                                writer.send(PlaySfxEvent("magic_cast".into()));
+                            }
+                            // Apply status from ability
+                            if let Some(ref se) = ability.status_effect
+                                && let Some(battle_status) = convert_status_effect(se)
+                            {
                                 status::apply_status_to_unit(&mut target, battle_status);
                             }
-                        }
-                        if target.is_ko() {
-                            ko_events.send(UnitKoEvent {
-                                unit_id: target.id,
-                                unit_name: target.name.clone(),
-                                side: target.side,
-                            });
+                            if target.is_ko() {
+                                ko_events.send(UnitKoEvent {
+                                    unit_id: target.id,
+                                    unit_name: target.name.clone(),
+                                    side: target.side,
+                                });
+                            }
                         }
                     }
                 }
@@ -669,9 +1243,23 @@ fn execute_ability(
                             .iter()
                             .any(|(id, a)| *id == eid && matches!(a, BattleAction::Defend));
                         if let Some(mut target) = units.iter_mut().find(|u| u.id == eid) {
-                            let dmg = damage::calculate_damage(
+                            // Accuracy check per target
+                            if !damage::check_accuracy(&caster, &target, &mut rng.0) {
+                                damage_events.send(DamageEvent {
+                                    attacker_id: caster_id,
+                                    target_id: eid,
+                                    damage: 0,
+                                    element: ability.element,
+                                    was_blocked: false,
+                                });
+                                continue;
+                            }
+                            let mut dmg = damage::calculate_damage(
                                 &caster, &target, &ability, defending, &mut rng.0,
                             );
+                            if damage::calculate_crit(&caster, &mut rng.0) {
+                                dmg = (dmg as f32 * 1.5) as i32;
+                            }
                             let result = damage::apply_damage_with_shields(&mut target, dmg);
                             damage_events.send(DamageEvent {
                                 attacker_id: caster_id,
@@ -680,10 +1268,15 @@ fn execute_ability(
                                 element: ability.element,
                                 was_blocked: result.was_blocked,
                             });
-                            if let Some(ref se) = ability.status_effect {
-                                if let Some(battle_status) = convert_status_effect(se) {
-                                    status::apply_status_to_unit(&mut target, battle_status);
-                                }
+                            if ability.ability_type == AbilityType::Psynergy
+                                && let Some(ref mut writer) = sfx_events
+                            {
+                                writer.send(PlaySfxEvent("magic_cast".into()));
+                            }
+                            if let Some(ref se) = ability.status_effect
+                                && let Some(battle_status) = convert_status_effect(se)
+                            {
+                                status::apply_status_to_unit(&mut target, battle_status);
                             }
                             if target.is_ko() {
                                 ko_events.send(UnitKoEvent {
@@ -704,10 +1297,10 @@ fn execute_ability(
                             .map(|u| u.id)
                             .collect();
                         for aid in aids {
-                            if let Some(mut ally) = units.iter_mut().find(|u| u.id == aid) {
-                                if let Some(battle_status) = convert_status_effect(se) {
-                                    status::apply_status_to_unit(&mut ally, battle_status);
-                                }
+                            if let Some(mut ally) = units.iter_mut().find(|u| u.id == aid)
+                                && let Some(battle_status) = convert_status_effect(se)
+                            {
+                                status::apply_status_to_unit(&mut ally, battle_status);
                             }
                         }
                     }
@@ -843,16 +1436,36 @@ fn buff_to_status_effects(
 // Victory / Defeat
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub fn victory_system(
     mut units: Query<&mut BattleUnit>,
     mut end_events: EventWriter<EndBattleEvent>,
     game_data: Res<GameData>,
+    mut battle_rng: ResMut<BattleRng>,
+    mut party: ResMut<Party>,
+    mut bestiary: Option<ResMut<crate::plugins::core_plugin::Bestiary>>,
+    difficulty: Option<Res<DifficultySettings>>,
+    mut achievements_res: Option<ResMut<crate::plugins::core_plugin::Achievements>>,
+    mut sfx_events: EventWriter<PlaySfxEvent>,
 ) {
+    // Record defeats for all enemies in the bestiary
+    if let Some(ref mut bestiary) = bestiary {
+        for unit in units.iter() {
+            if unit.side == UnitSide::Enemy
+                && let Some((enemy_id, _)) = game_data
+                    .enemies
+                    .iter()
+                    .find(|(_, def)| def.name == unit.name)
+            {
+                bestiary.record_defeat(enemy_id);
+            }
+        }
+    }
+
     let enemy_xp_gold: Vec<(u32, u32)> = units
         .iter()
         .filter(|u| u.side == UnitSide::Enemy)
         .filter_map(|u| {
-            // Look up base_xp and base_gold from enemy definitions by name
             game_data
                 .enemies
                 .values()
@@ -861,19 +1474,63 @@ pub fn victory_system(
         })
         .collect();
 
-    let mut party: Vec<BattleUnit> = units
+    let mut party_units: Vec<BattleUnit> = units
         .iter()
         .filter(|u| u.side == UnitSide::Player)
         .cloned()
         .collect();
-    let party_size = party.len() as u32;
-    let survivor_count = party.iter().filter(|u| u.is_alive()).count() as u32;
+    let party_size = party_units.len() as u32;
+    let survivor_count = party_units.iter().filter(|u| u.is_alive()).count() as u32;
 
-    let battle_rewards =
-        rewards::calculate_battle_rewards(&enemy_xp_gold, party_size, survivor_count);
-    let level_ups = rewards::distribute_rewards(&mut party, &battle_rewards);
+    let mut battle_rewards = rewards::calculate_battle_rewards(
+        &enemy_xp_gold,
+        party_size,
+        survivor_count,
+        &mut battle_rng.0,
+    );
 
-    for updated in &party {
+    // Scale XP and gold rewards by difficulty multipliers
+    let xp_mult = difficulty
+        .as_ref()
+        .map(|d| d.xp_multiplier())
+        .unwrap_or(1.0);
+    let gold_mult = difficulty
+        .as_ref()
+        .map(|d| d.gold_multiplier())
+        .unwrap_or(1.0);
+    battle_rewards.total_xp = (battle_rewards.total_xp as f32 * xp_mult) as u32;
+    battle_rewards.xp_per_unit = (battle_rewards.xp_per_unit as f32 * xp_mult) as u32;
+    battle_rewards.total_gold = (battle_rewards.total_gold as f32 * gold_mult) as u32;
+
+    // Build ability unlock map: unit_id -> [(unlock_level, ability_id)]
+    let mut ability_unlocks = std::collections::HashMap::new();
+    for unit in &party_units {
+        let unlocks: Vec<(u8, String)> = game_data
+            .units
+            .values()
+            .find(|def| def.name == unit.name)
+            .map(|def| {
+                def.abilities
+                    .iter()
+                    .map(|a| (a.unlock_level, a.ability_id.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        ability_unlocks.insert(unit.id, unlocks);
+    }
+
+    let level_ups =
+        rewards::distribute_rewards(&mut party_units, &battle_rewards, &ability_unlocks);
+
+    // Play level-up SFX for each unit that leveled up
+    if !level_ups.is_empty() {
+        for _lu in &level_ups {
+            sfx_events.send(PlaySfxEvent("level_up".into()));
+        }
+    }
+
+    // Write updated stats back to ECS entities
+    for updated in &party_units {
         if let Some(mut unit) = units.iter_mut().find(|u| u.id == updated.id) {
             unit.hp = updated.hp;
             unit.max_hp = updated.max_hp;
@@ -888,6 +1545,63 @@ pub fn victory_system(
         }
     }
 
+    // Persist levels/XP and HP/PP back to Party resource
+    persist_party_state(&mut party, &party_units, &game_data);
+
+    // Award gold
+    party.gold += battle_rewards.total_gold;
+
+    // Add dropped items to party inventory
+    for item_id in &battle_rewards.item_drops {
+        party.inventory.push(item_id.clone());
+    }
+
+    // Set first battle won story flag
+    if !party.has_flag(story::FIRST_BATTLE_WON) {
+        party.set_flag(story::FIRST_BATTLE_WON, true);
+    }
+
+    // --- Achievement unlock checks ---
+    if let Some(ref mut ach) = achievements_res {
+        // FIRST_BLOOD: Always unlock on any victory
+        ach.unlock(achievements::FIRST_BLOOD);
+
+        // NO_KO: All party members survived the battle
+        if survivor_count == party_size {
+            ach.unlock(achievements::NO_KO);
+        }
+
+        // HARD_MODE: Won a battle on Hard difficulty
+        if difficulty
+            .as_ref()
+            .map(|d| d.difficulty == crate::plugins::core_plugin::Difficulty::Hard)
+            .unwrap_or(false)
+        {
+            ach.unlock(achievements::HARD_MODE);
+        }
+
+        // LEVEL_10: Any unit reached level 10
+        if party.unit_levels.values().any(|(level, _)| *level >= 10) {
+            ach.unlock(achievements::LEVEL_10);
+        }
+
+        // GOLD_1000: Party has accumulated >= 1000 gold
+        if party.gold >= 1000 {
+            ach.unlock(achievements::GOLD_1000);
+        }
+
+        // BESTIARY_25 / BESTIARY_50: Bestiary milestone checks
+        if let Some(ref bestiary) = bestiary {
+            let entry_count = bestiary.entries.len();
+            if entry_count >= 25 {
+                ach.unlock(achievements::BESTIARY_25);
+            }
+            if entry_count >= 50 {
+                ach.unlock(achievements::BESTIARY_50);
+            }
+        }
+    }
+
     end_events.send(EndBattleEvent {
         victory: true,
         rewards: Some(battle_rewards),
@@ -895,10 +1609,941 @@ pub fn victory_system(
     });
 }
 
-pub fn defeat_system(mut end_events: EventWriter<EndBattleEvent>) {
+pub fn defeat_system(
+    mut end_events: EventWriter<EndBattleEvent>,
+    units: Query<&BattleUnit>,
+    mut party: ResMut<Party>,
+    game_data: Res<GameData>,
+) {
+    // Even on defeat, persist current HP/PP/level state
+    let party_units: Vec<BattleUnit> = units
+        .iter()
+        .filter(|u| u.side == UnitSide::Player)
+        .cloned()
+        .collect();
+    persist_party_state(&mut party, &party_units, &game_data);
+
     end_events.send(EndBattleEvent {
         victory: false,
         rewards: None,
         level_ups: vec![],
     });
+}
+
+/// Detects a successful flee (battle_state.fled == true) after the battle phase
+/// has transitioned to Inactive, and transitions the game state back to the
+/// overworld so the player is not stranded on the battle screen.
+pub fn handle_flee_system(
+    mut battle_state: ResMut<BattleStateRes>,
+    mut next_game_state: ResMut<NextState<GameState>>,
+) {
+    if battle_state.fled {
+        battle_state.fled = false;
+        next_game_state.set(GameState::Overworld);
+    }
+}
+
+/// Write BattleUnit level/XP and HP/PP back to the Party resource for persistence.
+fn persist_party_state(party: &mut Party, battle_units: &[BattleUnit], game_data: &GameData) {
+    // Build name-to-unit-id mapping
+    let name_to_unit_id: std::collections::HashMap<String, String> = game_data
+        .units
+        .iter()
+        .map(|(id, def)| (def.name.clone(), id.clone()))
+        .collect();
+
+    for unit in battle_units {
+        if let Some(unit_id) = name_to_unit_id.get(&unit.name) {
+            party
+                .unit_levels
+                .insert(unit_id.clone(), (unit.level, unit.xp));
+            party.unit_hp_pp.insert(unit_id.clone(), (unit.hp, unit.pp));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::abilities::{BuffEffect, StatusEffectDef};
+
+    /// Helper to build a GameData for tests using the real registry builders.
+    fn test_game_data() -> GameData {
+        GameData {
+            abilities: crate::data::abilities::build_ability_registry(),
+            units: crate::data::units::build_unit_registry(),
+            enemies: crate::data::enemies::build_enemy_registry(),
+            items: crate::data::items::build_item_registry(),
+            equipment: crate::data::items::build_equipment_registry(),
+            djinn: crate::data::djinn::build_djinn_registry(),
+        }
+    }
+
+    /// Helper to build a BattleUnit with sensible defaults for testing.
+    fn make_battle_unit(id: u32, name: &str, level: u8, hp: i32, pp: i32, xp: u32) -> BattleUnit {
+        BattleUnit {
+            id,
+            name: name.to_string(),
+            side: UnitSide::Player,
+            element: Element::Venus,
+            level,
+            hp,
+            max_hp: hp,
+            pp,
+            max_pp: pp,
+            atk: 20,
+            def: 15,
+            mag: 10,
+            spd: 12,
+            luck: 5,
+            status_effects: Vec::new(),
+            ability_ids: Vec::new(),
+            djinn_ids: Vec::new(),
+            damage_taken: 0,
+            damage_dealt: 0,
+            xp,
+            growth_rates: GrowthRates {
+                hp: 25,
+                pp: 4,
+                atk: 3,
+                def: 4,
+                mag: 2,
+                spd: 1,
+            },
+        }
+    }
+
+    #[test]
+    fn test_convert_status_effect_poison() {
+        let se_def = StatusEffectDef {
+            effect_type: "poison".to_string(),
+            duration: 3,
+            chance: 1.0,
+        };
+        let result = convert_status_effect(&se_def);
+        assert!(
+            result.is_some(),
+            "poison should convert to a BattleStatusEffect"
+        );
+        let effect = result.unwrap();
+        assert_eq!(effect, BattleStatusEffect::Poison { duration: 3 });
+        assert_eq!(effect.kind(), StatusKind::Poison);
+    }
+
+    #[test]
+    fn test_convert_status_effect_unknown() {
+        let se_def = StatusEffectDef {
+            effect_type: "petrify".to_string(),
+            duration: 5,
+            chance: 0.5,
+        };
+        let result = convert_status_effect(&se_def);
+        assert!(result.is_none(), "unknown effect_type should return None");
+    }
+
+    #[test]
+    fn test_buff_to_status_effects_mixed() {
+        let buff = BuffEffect {
+            atk: 10,
+            def: -5,
+            mag: 0,
+            spd: 0,
+        };
+        let effects = buff_to_status_effects(&buff, 4);
+
+        assert_eq!(effects.len(), 2, "should produce exactly 2 status effects");
+
+        // First effect: positive atk -> Buff
+        assert_eq!(
+            effects[0],
+            BattleStatusEffect::Buff {
+                stat: StatKind::Atk,
+                modifier: 10,
+                duration: 4,
+            }
+        );
+
+        // Second effect: negative def -> Debuff
+        assert_eq!(
+            effects[1],
+            BattleStatusEffect::Debuff {
+                stat: StatKind::Def,
+                modifier: -5,
+                duration: 4,
+            }
+        );
+    }
+
+    #[test]
+    fn test_buff_to_status_effects_empty() {
+        let buff = BuffEffect {
+            atk: 0,
+            def: 0,
+            mag: 0,
+            spd: 0,
+        };
+        let effects = buff_to_status_effects(&buff, 3);
+        assert!(
+            effects.is_empty(),
+            "all-zero BuffEffect should produce no status effects"
+        );
+    }
+
+    #[test]
+    fn test_equipment_stat_bonuses_no_equipment() {
+        let party = Party::default();
+        let game_data = test_game_data();
+
+        let (hp, pp, atk, def, mag, spd) = equipment_stat_bonuses("adept", &party, &game_data);
+
+        assert_eq!(hp, 0);
+        assert_eq!(pp, 0);
+        assert_eq!(atk, 0);
+        assert_eq!(def, 0);
+        assert_eq!(mag, 0);
+        assert_eq!(spd, 0);
+    }
+
+    #[test]
+    fn test_persist_party_state_writes_levels() {
+        let game_data = test_game_data();
+        let mut party = Party::default();
+
+        // Create BattleUnits whose names match units in the registry.
+        // "adept" maps to the "Adept" unit definition.
+        let units = vec![make_battle_unit(1, "Adept", 5, 80, 20, 1200)];
+
+        persist_party_state(&mut party, &units, &game_data);
+
+        // Verify level/XP was written
+        let (level, xp) = party
+            .unit_levels
+            .get("adept")
+            .expect("adept should have persisted level/XP");
+        assert_eq!(*level, 5);
+        assert_eq!(*xp, 1200);
+
+        // Verify HP/PP was written
+        let (hp, pp) = party
+            .unit_hp_pp
+            .get("adept")
+            .expect("adept should have persisted HP/PP");
+        assert_eq!(*hp, 80);
+        assert_eq!(*pp, 20);
+    }
+
+    // -----------------------------------------------------------------------
+    // Enhanced summon resolution tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_enhanced_summon_damage_uses_real_registry() {
+        // Verify that summon_djinn_enhanced returns the correct aggregated
+        // damage from the real djinn registry for flint (80) + forge (120).
+        let game_data = test_game_data();
+        let mut djinn_state = DjinnBattleRes {
+            trackers: vec![
+                DjinnTracker {
+                    djinn_id: "flint".into(),
+                    state: DjinnBattleState::Standby,
+                    owner_unit_id: 1,
+                    last_activated_turn: 0,
+                    recovery_turns_remaining: 0,
+                },
+                DjinnTracker {
+                    djinn_id: "forge".into(),
+                    state: DjinnBattleState::Standby,
+                    owner_unit_id: 1,
+                    last_activated_turn: 0,
+                    recovery_turns_remaining: 0,
+                },
+            ],
+        };
+
+        let result = djinn::summon_djinn_enhanced(
+            &["flint".into(), "forge".into()],
+            3,
+            &mut djinn_state,
+            &game_data.djinn,
+        )
+        .expect("enhanced summon should succeed");
+
+        // flint(80) + forge(120) = 200 total damage
+        assert_eq!(result.total_damage, 200);
+        assert_eq!(result.total_healing, 0);
+        assert!(result.stat_buffs.is_empty());
+        assert!(result.status_inflicts.is_empty());
+
+        // Both djinn should now be in Recovery
+        assert!(
+            djinn_state
+                .trackers
+                .iter()
+                .all(|t| t.state == DjinnBattleState::Recovery)
+        );
+    }
+
+    #[test]
+    fn test_enhanced_summon_heal_and_status_from_registry() {
+        // Summon fizz (heal:100) and fever (status:burn/3) together.
+        // Verify the SummonResult aggregates both healing and status effects.
+        let game_data = test_game_data();
+        let mut djinn_state = DjinnBattleRes {
+            trackers: vec![
+                DjinnTracker {
+                    djinn_id: "fizz".into(),
+                    state: DjinnBattleState::Standby,
+                    owner_unit_id: 1,
+                    last_activated_turn: 0,
+                    recovery_turns_remaining: 0,
+                },
+                DjinnTracker {
+                    djinn_id: "fever".into(),
+                    state: DjinnBattleState::Standby,
+                    owner_unit_id: 1,
+                    last_activated_turn: 0,
+                    recovery_turns_remaining: 0,
+                },
+            ],
+        };
+
+        let result = djinn::summon_djinn_enhanced(
+            &["fizz".into(), "fever".into()],
+            5,
+            &mut djinn_state,
+            &game_data.djinn,
+        )
+        .expect("enhanced summon should succeed");
+
+        assert_eq!(result.total_damage, 0);
+        assert_eq!(result.total_healing, 100);
+        assert_eq!(result.status_inflicts.len(), 1);
+        assert_eq!(result.status_inflicts[0].0, "burn");
+        assert_eq!(result.status_inflicts[0].1, 3);
+    }
+
+    // -------------------------------------------------------------------
+    // Integration tests: turn order, status effects, AI, flee, elements
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_turn_order_respects_speed() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let mut slow = make_battle_unit(1, "Slow", 5, 100, 50, 0);
+        slow.spd = 5;
+        slow.side = UnitSide::Player;
+
+        let mut med = make_battle_unit(2, "Medium", 5, 100, 50, 0);
+        med.spd = 15;
+        med.side = UnitSide::Enemy;
+
+        let mut fast = make_battle_unit(3, "Fast", 5, 100, 50, 0);
+        fast.spd = 30;
+        fast.side = UnitSide::Player;
+
+        let units = vec![slow, med, fast];
+        let mut rng = StdRng::seed_from_u64(42);
+        let order = turn_order::calculate_turn_order(&units, &mut rng);
+
+        assert_eq!(order.len(), 3);
+        assert_eq!(order[0], 3, "fastest (spd=30) goes first");
+        assert_eq!(order[1], 2, "medium (spd=15) goes second");
+        assert_eq!(order[2], 1, "slowest (spd=5) goes last");
+    }
+
+    #[test]
+    fn test_status_effect_tick() {
+        use crate::battle::types::constants;
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let mut unit = make_battle_unit(1, "Poisoned", 5, 200, 50, 0);
+        unit.status_effects
+            .push(BattleStatusEffect::Poison { duration: 3 });
+
+        let initial_hp = unit.hp;
+        let expected_dmg = (unit.max_hp as f32 * constants::POISON_PERCENT).floor() as i32;
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let result = status::tick_status_effects(&mut unit, &mut rng);
+
+        assert_eq!(result.damage, expected_dmg);
+        assert_eq!(unit.hp, initial_hp - expected_dmg);
+        assert!(
+            !unit.status_effects.is_empty(),
+            "poison (dur 3) should remain active after one tick"
+        );
+    }
+
+    #[test]
+    fn test_ai_targets_weakest() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+        use std::collections::HashMap;
+
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let mut enemy = make_battle_unit(1, "Enemy", 5, 100, 50, 0);
+        enemy.side = UnitSide::Enemy;
+
+        let mut strong = make_battle_unit(10, "Strong", 5, 90, 50, 0);
+        strong.side = UnitSide::Player;
+        let mut mid = make_battle_unit(11, "Mid", 5, 50, 50, 0);
+        mid.side = UnitSide::Player;
+        let mut weak = make_battle_unit(12, "Weak", 5, 15, 50, 0);
+        weak.side = UnitSide::Player;
+
+        let targets = vec![strong, mid, weak];
+        let registry: HashMap<String, AbilityDef> = HashMap::new();
+
+        let action = ai::enemy_choose_action(
+            &enemy,
+            std::slice::from_ref(&enemy),
+            &targets,
+            &registry,
+            &mut rng,
+        );
+
+        match action {
+            BattleAction::Attack { target_id } => {
+                assert_eq!(target_id, 12, "should target weakest (id=12, hp=15)");
+            }
+            other => panic!("Expected Attack, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_flee_probability() {
+        use crate::battle::types::constants;
+
+        let equal = rewards::flee_chance(10.0, 10.0);
+        assert!((equal - constants::BASE_FLEE_CHANCE).abs() < 0.001);
+
+        let faster = rewards::flee_chance(20.0, 10.0);
+        let expected = constants::BASE_FLEE_CHANCE + 10.0 * constants::SPEED_FLEE_BONUS;
+        assert!((faster - expected).abs() < 0.001);
+
+        let max = rewards::flee_chance(100.0, 10.0);
+        assert!((max - 0.90).abs() < 0.001, "clamped to 0.90");
+
+        let min = rewards::flee_chance(5.0, 100.0);
+        assert!((min - 0.10).abs() < 0.001, "clamped to 0.10");
+    }
+
+    #[test]
+    fn test_damage_with_element_advantage() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let mut atk_unit = make_battle_unit(1, "Venus", 5, 100, 50, 0);
+        atk_unit.element = Element::Venus;
+        atk_unit.mag = 25;
+        atk_unit.luck = 0;
+
+        let mut def_jup = make_battle_unit(2, "Jupiter", 5, 200, 50, 0);
+        def_jup.element = Element::Jupiter;
+        def_jup.def = 10;
+
+        let mut def_ven = def_jup.clone();
+        def_ven.element = Element::Venus;
+
+        let ability = AbilityDef {
+            id: "earth_strike".into(),
+            name: "Earth Strike".into(),
+            ability_type: AbilityType::Psynergy,
+            element: Some(Element::Venus),
+            mana_cost: 5,
+            base_power: 40,
+            targets: TargetKind::SingleEnemy,
+            unlock_level: 1,
+            description: String::new(),
+            buff_effect: None,
+            duration: None,
+            status_effect: None,
+            chain_damage: false,
+            ignore_defense_percent: 0.0,
+            damage_reduction_percent: 0.0,
+            shield_charges: None,
+            ai_hints: AiHints {
+                priority: 1.0,
+                target: AiTargetPref::Weakest,
+                avoid_overkill: false,
+                opener: false,
+            },
+        };
+
+        let mut r1 = StdRng::seed_from_u64(42);
+        let dmg_adv =
+            damage::calculate_psynergy_damage(&atk_unit, &def_jup, &ability, false, &mut r1);
+        let mut r2 = StdRng::seed_from_u64(42);
+        let dmg_neu =
+            damage::calculate_psynergy_damage(&atk_unit, &def_ven, &ability, false, &mut r2);
+
+        assert!(
+            dmg_adv > dmg_neu,
+            "advantage damage ({}) should exceed neutral ({})",
+            dmg_adv,
+            dmg_neu
+        );
+        let m = damage::element_modifier(Element::Venus, Element::Jupiter);
+        assert!((m - 1.25).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_damage_with_element_disadvantage() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let mut atk_unit = make_battle_unit(1, "Venus", 5, 100, 50, 0);
+        atk_unit.element = Element::Venus;
+        atk_unit.mag = 25;
+        atk_unit.luck = 0;
+
+        let mut def_mars = make_battle_unit(2, "Mars", 5, 200, 50, 0);
+        def_mars.element = Element::Mars;
+        def_mars.def = 10;
+
+        let mut def_ven = def_mars.clone();
+        def_ven.element = Element::Venus;
+
+        let ability = AbilityDef {
+            id: "earth_strike".into(),
+            name: "Earth Strike".into(),
+            ability_type: AbilityType::Psynergy,
+            element: Some(Element::Venus),
+            mana_cost: 5,
+            base_power: 40,
+            targets: TargetKind::SingleEnemy,
+            unlock_level: 1,
+            description: String::new(),
+            buff_effect: None,
+            duration: None,
+            status_effect: None,
+            chain_damage: false,
+            ignore_defense_percent: 0.0,
+            damage_reduction_percent: 0.0,
+            shield_charges: None,
+            ai_hints: AiHints {
+                priority: 1.0,
+                target: AiTargetPref::Weakest,
+                avoid_overkill: false,
+                opener: false,
+            },
+        };
+
+        let mut r1 = StdRng::seed_from_u64(42);
+        let dmg_dis =
+            damage::calculate_psynergy_damage(&atk_unit, &def_mars, &ability, false, &mut r1);
+        let mut r2 = StdRng::seed_from_u64(42);
+        let dmg_neu =
+            damage::calculate_psynergy_damage(&atk_unit, &def_ven, &ability, false, &mut r2);
+
+        assert!(
+            dmg_dis < dmg_neu,
+            "disadvantage damage ({}) should be less than neutral ({})",
+            dmg_dis,
+            dmg_neu
+        );
+        let m = damage::element_modifier(Element::Venus, Element::Mars);
+        assert!((m - 0.75).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_enhanced_summon_heals_all_party_members() {
+        // Simulate the resolution system's healing path: summon fizz (heal:100),
+        // then apply healing to multiple party members who are below max HP.
+        let game_data = test_game_data();
+        let mut djinn_state = DjinnBattleRes {
+            trackers: vec![DjinnTracker {
+                djinn_id: "fizz".into(),
+                state: DjinnBattleState::Standby,
+                owner_unit_id: 1,
+                last_activated_turn: 0,
+                recovery_turns_remaining: 0,
+            }],
+        };
+
+        let result =
+            djinn::summon_djinn_enhanced(&["fizz".into()], 5, &mut djinn_state, &game_data.djinn)
+                .expect("enhanced summon should succeed");
+
+        assert_eq!(result.total_healing, 100);
+
+        // Create two party members both below max HP (simulating the all-ally heal).
+        let mut ally1 = make_battle_unit(1, "Adept", 5, 50, 20, 0);
+        ally1.max_hp = 120;
+        let mut ally2 = make_battle_unit(2, "Mage", 5, 30, 20, 0);
+        ally2.max_hp = 100;
+
+        // Apply healing the same way the resolution system does for ALL allies.
+        let old_hp1 = ally1.hp;
+        damage::apply_healing(&mut ally1, result.total_healing, false);
+        let healed1 = ally1.hp - old_hp1;
+
+        let old_hp2 = ally2.hp;
+        damage::apply_healing(&mut ally2, result.total_healing, false);
+        let healed2 = ally2.hp - old_hp2;
+
+        // Both allies should have been healed.
+        assert!(healed1 > 0, "ally1 should have received healing");
+        assert!(healed2 > 0, "ally2 should have received healing");
+        // ally1: min(50+100, 120) = 120, healed 70
+        assert_eq!(ally1.hp, 120);
+        assert_eq!(healed1, 70);
+        // ally2: min(30+100, 100) = 100, healed 70
+        assert_eq!(ally2.hp, 100);
+        assert_eq!(healed2, 70);
+    }
+
+    #[test]
+    fn test_enhanced_summon_status_chance_roll() {
+        // Simulate the resolution system's status application with a chance roll.
+        // Summon fever (status:burn/3), then for each enemy roll against the chance.
+        // Using a seeded RNG, verify that some enemies get the status and some don't.
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let game_data = test_game_data();
+        let mut djinn_state = DjinnBattleRes {
+            trackers: vec![DjinnTracker {
+                djinn_id: "fever".into(),
+                state: DjinnBattleState::Standby,
+                owner_unit_id: 1,
+                last_activated_turn: 0,
+                recovery_turns_remaining: 0,
+            }],
+        };
+
+        let result =
+            djinn::summon_djinn_enhanced(&["fever".into()], 5, &mut djinn_state, &game_data.djinn)
+                .expect("enhanced summon should succeed");
+
+        assert_eq!(result.status_inflicts.len(), 1);
+        assert_eq!(result.status_inflicts[0].0, "burn");
+        assert_eq!(result.status_inflicts[0].1, 3);
+
+        // Simulate applying status to 10 enemies with a 75% chance each,
+        // using the same seeded RNG approach the resolution system uses.
+        const SUMMON_STATUS_CHANCE: f32 = 0.75;
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut enemies: Vec<BattleUnit> = (0..10)
+            .map(|i| {
+                let mut unit = make_battle_unit(100 + i, "Goblin", 3, 50, 10, 0);
+                unit.side = UnitSide::Enemy;
+                unit
+            })
+            .collect();
+
+        let mut applied_count = 0;
+        let mut skipped_count = 0;
+        for enemy in enemies.iter_mut() {
+            if rng.r#gen::<f32>() < SUMMON_STATUS_CHANCE {
+                let battle_status = BattleStatusEffect::Burn { duration: 3 };
+                let applied = status::apply_status_to_unit(enemy, battle_status);
+                if applied {
+                    applied_count += 1;
+                }
+            } else {
+                skipped_count += 1;
+            }
+        }
+
+        // With 75% chance and 10 enemies, we expect some to be hit and some to be skipped.
+        // With seed 42, the exact distribution is deterministic.
+        assert!(
+            applied_count > 0,
+            "at least some enemies should have status applied"
+        );
+        assert!(
+            skipped_count > 0,
+            "at least some enemies should have been skipped by the chance roll"
+        );
+        assert_eq!(applied_count + skipped_count, 10);
+
+        // Verify that enemies who got the status actually have it.
+        let enemies_with_burn = enemies
+            .iter()
+            .filter(|e| {
+                e.status_effects
+                    .iter()
+                    .any(|s| matches!(s, BattleStatusEffect::Burn { .. }))
+            })
+            .count();
+        assert_eq!(
+            enemies_with_burn, applied_count,
+            "burn count on units should match applied count"
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // Difficulty scaling tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_difficulty_enemy_stat_scaling() {
+        use crate::plugins::core_plugin::{Difficulty, DifficultySettings};
+
+        // Simulate the stat scaling logic from battle_enter_system for each difficulty.
+        let mut enemy = make_battle_unit(10, "Goblin", 3, 100, 20, 0);
+        enemy.side = UnitSide::Enemy;
+        enemy.atk = 30;
+        enemy.def = 20;
+
+        for (difficulty, expected_mult) in [
+            (Difficulty::Easy, 0.8_f32),
+            (Difficulty::Normal, 1.0_f32),
+            (Difficulty::Hard, 1.3_f32),
+        ] {
+            let settings = DifficultySettings { difficulty };
+            let mult = settings.enemy_stat_multiplier();
+            assert!(
+                (mult - expected_mult).abs() < f32::EPSILON,
+                "expected {expected_mult} for {difficulty:?}, got {mult}"
+            );
+
+            // Apply the same scaling the system uses
+            let scaled_hp = (enemy.hp as f32 * mult) as i32;
+            let scaled_max_hp = (enemy.max_hp as f32 * mult) as i32;
+            let scaled_atk = (enemy.atk as f32 * mult) as i32;
+            let scaled_def = (enemy.def as f32 * mult) as i32;
+
+            assert_eq!(scaled_hp, (100.0 * expected_mult) as i32);
+            assert_eq!(scaled_max_hp, (100.0 * expected_mult) as i32);
+            assert_eq!(scaled_atk, (30.0 * expected_mult) as i32);
+            assert_eq!(scaled_def, (20.0 * expected_mult) as i32);
+        }
+    }
+
+    #[test]
+    fn test_difficulty_reward_scaling() {
+        use crate::plugins::core_plugin::{Difficulty, DifficultySettings};
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let enemy_xp_gold = vec![(100, 50), (100, 50)]; // 200 XP, 100 gold total
+
+        // Calculate base rewards (Normal difficulty, all survived)
+        let mut rng = StdRng::seed_from_u64(42);
+        let base = rewards::calculate_battle_rewards(&enemy_xp_gold, 2, 2, &mut rng);
+        // With survivor bonus: 200 * 1.2 = 240 XP, 100 * 1.1 = 110 gold
+        assert_eq!(base.total_xp, 240);
+        assert_eq!(base.total_gold, 110);
+
+        // Easy: xp * 1.2, gold * 1.3
+        let easy = DifficultySettings {
+            difficulty: Difficulty::Easy,
+        };
+        let easy_xp = (base.total_xp as f32 * easy.xp_multiplier()) as u32;
+        let easy_gold = (base.total_gold as f32 * easy.gold_multiplier()) as u32;
+        assert_eq!(easy_xp, (240.0 * 1.2) as u32);
+        assert_eq!(easy_gold, (110.0 * 1.3) as u32);
+
+        // Hard: xp * 1.5, gold * 0.8
+        let hard = DifficultySettings {
+            difficulty: Difficulty::Hard,
+        };
+        let hard_xp = (base.total_xp as f32 * hard.xp_multiplier()) as u32;
+        let hard_gold = (base.total_gold as f32 * hard.gold_multiplier()) as u32;
+        assert_eq!(hard_xp, (240.0 * 1.5) as u32);
+        assert_eq!(hard_gold, (110.0 * 0.8) as u32);
+
+        // Verify ordering: hard XP > easy XP > normal XP
+        assert!(hard_xp > easy_xp);
+        assert!(easy_xp > base.total_xp);
+
+        // Verify ordering: easy gold > normal gold > hard gold
+        assert!(easy_gold > base.total_gold);
+        assert!(base.total_gold > hard_gold);
+    }
+
+    #[test]
+    fn test_difficulty_flee_chance_bonus() {
+        use crate::plugins::core_plugin::{Difficulty, DifficultySettings};
+
+        let base_chance = rewards::flee_chance(10.0, 10.0);
+        assert!(
+            (base_chance - 0.5).abs() < 0.001,
+            "equal speed should give ~50% flee chance"
+        );
+
+        // Easy: +0.15 bonus
+        let easy = DifficultySettings {
+            difficulty: Difficulty::Easy,
+        };
+        let easy_chance = (base_chance + easy.flee_chance_bonus()).clamp(0.10, 0.90);
+        assert!(
+            (easy_chance - 0.65).abs() < 0.001,
+            "Easy flee chance should be ~65%, got {easy_chance}"
+        );
+
+        // Hard: -0.10 penalty
+        let hard = DifficultySettings {
+            difficulty: Difficulty::Hard,
+        };
+        let hard_chance = (base_chance + hard.flee_chance_bonus()).clamp(0.10, 0.90);
+        assert!(
+            (hard_chance - 0.40).abs() < 0.001,
+            "Hard flee chance should be ~40%, got {hard_chance}"
+        );
+
+        // Ordering: easy > normal > hard
+        assert!(easy_chance > base_chance);
+        assert!(base_chance > hard_chance);
+    }
+
+    // -------------------------------------------------------------------
+    // Achievement unlock logic tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_victory_achievements_first_blood_and_no_ko() {
+        use crate::plugins::core_plugin::{Achievements, Bestiary, Difficulty, achievements};
+
+        let mut ach = Achievements::build_default();
+        let party = Party::default();
+        let bestiary = Bestiary::default();
+        let difficulty = DifficultySettings {
+            difficulty: Difficulty::Normal,
+        };
+
+        // Simulate the achievement unlock logic from victory_system:
+        // party_size = 2, survivor_count = 2 (all alive)
+        let party_size: u32 = 2;
+        let survivor_count: u32 = 2;
+
+        // FIRST_BLOOD
+        ach.unlock(achievements::FIRST_BLOOD);
+
+        // NO_KO
+        if survivor_count == party_size {
+            ach.unlock(achievements::NO_KO);
+        }
+
+        // HARD_MODE
+        if difficulty.difficulty == Difficulty::Hard {
+            ach.unlock(achievements::HARD_MODE);
+        }
+
+        // LEVEL_10
+        if party.unit_levels.values().any(|(level, _)| *level >= 10) {
+            ach.unlock(achievements::LEVEL_10);
+        }
+
+        // GOLD_1000
+        if party.gold >= 1000 {
+            ach.unlock(achievements::GOLD_1000);
+        }
+
+        // Bestiary checks
+        let entry_count = bestiary.entries.len();
+        if entry_count >= 25 {
+            ach.unlock(achievements::BESTIARY_25);
+        }
+        if entry_count >= 50 {
+            ach.unlock(achievements::BESTIARY_50);
+        }
+
+        // FIRST_BLOOD always unlocks on victory
+        assert!(ach.is_unlocked(achievements::FIRST_BLOOD));
+        // NO_KO should unlock since all survived
+        assert!(ach.is_unlocked(achievements::NO_KO));
+        // These should NOT be unlocked given the test conditions
+        assert!(!ach.is_unlocked(achievements::HARD_MODE));
+        assert!(!ach.is_unlocked(achievements::LEVEL_10));
+        assert!(!ach.is_unlocked(achievements::GOLD_1000));
+        assert!(!ach.is_unlocked(achievements::BESTIARY_25));
+        assert!(!ach.is_unlocked(achievements::BESTIARY_50));
+    }
+
+    #[test]
+    fn test_victory_achievements_hard_mode_and_gold() {
+        use crate::plugins::core_plugin::{Achievements, Difficulty, achievements};
+
+        let mut ach = Achievements::build_default();
+        let party = Party {
+            gold: 1200, // above 1000 threshold
+            ..Party::default()
+        };
+
+        let difficulty = DifficultySettings {
+            difficulty: Difficulty::Hard,
+        };
+
+        // Simulate the achievement unlock logic from victory_system
+        ach.unlock(achievements::FIRST_BLOOD);
+
+        // party_size = 2, survivor_count = 1 (one KO'd)
+        let party_size: u32 = 2;
+        let survivor_count: u32 = 1;
+        if survivor_count == party_size {
+            ach.unlock(achievements::NO_KO);
+        }
+
+        if difficulty.difficulty == Difficulty::Hard {
+            ach.unlock(achievements::HARD_MODE);
+        }
+
+        if party.gold >= 1000 {
+            ach.unlock(achievements::GOLD_1000);
+        }
+
+        assert!(ach.is_unlocked(achievements::FIRST_BLOOD));
+        assert!(
+            !ach.is_unlocked(achievements::NO_KO),
+            "NO_KO should not unlock when a party member was KO'd"
+        );
+        assert!(
+            ach.is_unlocked(achievements::HARD_MODE),
+            "HARD_MODE should unlock on Hard difficulty"
+        );
+        assert!(
+            ach.is_unlocked(achievements::GOLD_1000),
+            "GOLD_1000 should unlock when gold >= 1000"
+        );
+    }
+
+    #[test]
+    fn test_victory_achievements_level_10_and_bestiary() {
+        use crate::plugins::core_plugin::{Achievements, Bestiary, achievements};
+
+        let mut ach = Achievements::build_default();
+        let mut party = Party::default();
+        party.unit_levels.insert("adept".into(), (10, 5000));
+
+        let mut bestiary = Bestiary::default();
+        // Add 26 unique enemies to pass the 25-entry threshold
+        for i in 0..26 {
+            bestiary.record_encounter(&format!("enemy_{i}"), &format!("Enemy {i}"));
+        }
+
+        // Simulate the achievement unlock logic from victory_system
+        ach.unlock(achievements::FIRST_BLOOD);
+
+        if party.unit_levels.values().any(|(level, _)| *level >= 10) {
+            ach.unlock(achievements::LEVEL_10);
+        }
+
+        let entry_count = bestiary.entries.len();
+        if entry_count >= 25 {
+            ach.unlock(achievements::BESTIARY_25);
+        }
+        if entry_count >= 50 {
+            ach.unlock(achievements::BESTIARY_50);
+        }
+
+        assert!(
+            ach.is_unlocked(achievements::LEVEL_10),
+            "LEVEL_10 should unlock when a unit has level >= 10"
+        );
+        assert!(
+            ach.is_unlocked(achievements::BESTIARY_25),
+            "BESTIARY_25 should unlock with 26 entries"
+        );
+        assert!(
+            !ach.is_unlocked(achievements::BESTIARY_50),
+            "BESTIARY_50 should not unlock with only 26 entries"
+        );
+    }
 }

@@ -7,14 +7,18 @@
 use bevy::prelude::*;
 use rand::Rng;
 
-use super::core_plugin::GameState;
+use super::core_plugin::{GameData, GameState, Party, story};
 use super::shop::CurrentShop;
+use super::sprites::SpriteHandles;
+use super::tower::{
+    TowerBattleActive, TowerState, build_floor_definitions, generate_floor_encounter,
+};
 use super::ui::{ScreenTransition, start_transition};
 use crate::battle::types::{
     BattlePhase, BattleUnit, EndBattleEvent, GrowthRates, StartBattleEvent, UnitSide,
 };
 use crate::components::world::*;
-use crate::data::enemies::{self, EnemyDefinition};
+use crate::data::enemies::{self, EnemyDefinition, get_enemies_by_tier};
 
 // ── Constants ─────────────────────────────────────────────────────────
 const TILE_SIZE: f32 = 32.0;
@@ -32,6 +36,10 @@ const DOOR: Color = Color::srgb(0.6, 0.45, 0.15);
 const PLAYER_COLOR: Color = Color::srgb(0.85, 0.65, 0.13);
 const NPC_COLOR: Color = Color::srgb(0.3, 0.5, 0.8);
 const NPC_ALT_COLOR: Color = Color::srgb(0.7, 0.4, 0.25);
+const TOWER: Color = Color::srgb(0.4, 0.3, 0.5);
+const TALL_GRASS: Color = Color::srgb(0.12, 0.35, 0.10);
+const CAVE_GROUND: Color = Color::srgb(0.35, 0.30, 0.25);
+const RECRUIT_NPC_COLOR: Color = Color::srgb(0.2, 0.7, 0.3);
 
 // UI colors
 const GOLD: Color = Color::srgb(0.85, 0.65, 0.13);
@@ -58,6 +66,29 @@ struct DialogText;
 
 #[derive(Component)]
 struct DialogHintText;
+
+#[derive(Component)]
+struct TowerDoor;
+
+/// Marks an NPC as a recruitable party member.
+#[derive(Component, Debug)]
+struct RecruitNpc {
+    unit_id: String,
+}
+
+/// Marks the Elder NPC whose dialog changes based on story progress.
+#[derive(Component, Debug)]
+struct ElderNpc;
+
+/// Marks the Fortune Teller NPC whose hints change based on story progress.
+#[derive(Component, Debug)]
+struct FortuneTellerNpc;
+
+/// Marks an NPC as an innkeeper who can heal the party for gold.
+#[derive(Component, Debug)]
+struct InnKeeper {
+    cost: u32,
+}
 
 // ── Resources ─────────────────────────────────────────────────────────
 
@@ -101,7 +132,9 @@ impl TileMap {
 
     fn is_walkable(&self, x: i32, y: i32) -> bool {
         let t = self.get(x, y);
-        t != 2 && t != 3 && t != 4 // not wall, water, building-interior
+        // Walkable: grass (0), path (1), door (5), tall grass (7), cave ground (8)
+        // Not walkable: wall (2), water (3), building-interior (4), tower (6)
+        t != 2 && t != 3 && t != 4 && t != 6
     }
 
     fn is_encounter_zone(&self, x: i32, y: i32) -> bool {
@@ -198,33 +231,50 @@ fn generate_tile_map() -> TileMap {
     }
     tiles[(13 * MAP_WIDTH + 10) as usize] = 5; // door
 
+    // Building: Tower of Trials (right side of map, 3 wide x 4 tall)
+    for y in 2..6 {
+        for x in 25..28 {
+            tiles[(y * MAP_WIDTH + x) as usize] = 6; // tower wall
+        }
+    }
+    tiles[(5 * MAP_WIDTH + 26) as usize] = 5; // tower door
+
     // Fence / walls
     for x in 3..8 {
         tiles[(8 * MAP_WIDTH + x) as usize] = 2;
     }
 
-    // Encounter zones: tall grass and cave-like ground patches.
-    let mut mark_encounter = |x: i32, y: i32| {
+    // Encounter zones: tall grass, cave-like ground, and forest edge patches.
+    // Each zone gets a distinct tile type so players can visually identify danger areas.
+    let mut mark_encounter_with_tile = |x: i32, y: i32, tile_type: u8| {
         if x < 0 || y < 0 || x >= MAP_WIDTH || y >= MAP_HEIGHT {
             return;
         }
         let idx = (y * MAP_WIDTH + x) as usize;
         if tiles[idx] == 0 || tiles[idx] == 1 {
             encounter_zones[idx] = true;
+            tiles[idx] = tile_type;
         }
     };
 
-    // Tall grass (north of town)
+    // Tall grass (north of town) — tile type 7
     for y in 2..6 {
         for x in 9..14 {
-            mark_encounter(x, y);
+            mark_encounter_with_tile(x, y, 7);
         }
     }
 
-    // Cave-like patch (south-east plains)
+    // Cave-like patch (south-east plains) — tile type 8
     for y in 14..18 {
         for x in 16..21 {
-            mark_encounter(x, y);
+            mark_encounter_with_tile(x, y, 8);
+        }
+    }
+
+    // Forest edge (west side of map) — tile type 7
+    for y in 12..17 {
+        for x in 2..6 {
+            mark_encounter_with_tile(x, y, 7);
         }
     }
 
@@ -236,12 +286,50 @@ fn generate_tile_map() -> TileMap {
     }
 }
 
+// ── Sprite helpers ────────────────────────────────────────────────────
+
+/// Maps an NPC name to a sprite handle key in `SpriteHandles::units`.
+/// Returns `None` for NPCs that have no matching sprite.
+fn npc_sprite_key(npc_name: &str) -> Option<&'static str> {
+    match npc_name {
+        "Karis" => Some("karis"),
+        "Tyrell" => Some("tyrell"),
+        "Amiti" => Some("mystic"),
+        "Elder Dora" => Some("sentinel"),
+        "Shopkeeper" => Some("ranger"),
+        "Innkeeper" => Some("ranger"),
+        "Guard" => Some("sentinel"),
+        "Tower Guard" => Some("sentinel"),
+        "Scholar Liam" => Some("mystic"),
+        "Little Mia" => Some("karis"),
+        "Blacksmith" => Some("war-mage"),
+        "Fortune Teller" => Some("stormcaller"),
+        "Wandering Merchant" => Some("ranger"),
+        _ => None,
+    }
+}
+
+/// Build a `Sprite` from a loaded image handle with a custom size, or fall
+/// back to a coloured rectangle when the handle is not available.
+fn make_sprite(handle: Option<&Handle<Image>>, fallback_color: Color, size: Vec2) -> Sprite {
+    if let Some(h) = handle {
+        Sprite {
+            image: h.clone(),
+            custom_size: Some(size),
+            ..default()
+        }
+    } else {
+        Sprite::from_color(fallback_color, size)
+    }
+}
+
 // ── Setup ─────────────────────────────────────────────────────────────
 
 fn setup_overworld(
     mut commands: Commands,
     mut dialog: ResMut<DialogState>,
     mut return_position: ResMut<BattleReturnPosition>,
+    sprite_handles: Res<SpriteHandles>,
 ) {
     *dialog = DialogState::default();
 
@@ -275,6 +363,9 @@ fn setup_overworld(
                 3 => WATER,
                 4 => BUILDING,
                 5 => DOOR,
+                6 => TOWER,
+                7 => TALL_GRASS,
+                8 => CAVE_GROUND,
                 _ => GRASS,
             };
 
@@ -286,6 +377,10 @@ fn setup_overworld(
             if tilemap.is_encounter_zone(x, y) {
                 tile_entity.insert(EncounterZone);
             }
+            // Mark the tower door tile
+            if x == 26 && y == 5 && tile == 5 {
+                tile_entity.insert(TowerDoor);
+            }
         }
     }
 
@@ -294,12 +389,14 @@ fn setup_overworld(
         .player_position
         .take()
         .unwrap_or(GridPosition::new(15, 10));
+    let player_size = Vec2::new(TILE_SIZE * 0.8, TILE_SIZE * 0.8);
+    let player_sprite = make_sprite(sprite_handles.units.get("adept"), PLAYER_COLOR, player_size);
     commands.spawn((
         OverworldRoot,
         Player,
         PlayerMovement::default(),
         start,
-        Sprite::from_color(PLAYER_COLOR, Vec2::new(TILE_SIZE * 0.8, TILE_SIZE * 0.8)),
+        player_sprite,
         Transform::from_xyz(
             start.x as f32 * TILE_SIZE,
             -(start.y as f32) * TILE_SIZE,
@@ -319,6 +416,7 @@ fn setup_overworld(
             "But also great treasure. Prepare yourself well.".into(),
         ],
         None,
+        npc_sprite_key("Elder Dora").and_then(|k| sprite_handles.units.get(k)),
     );
     spawn_npc(
         &mut commands,
@@ -326,8 +424,11 @@ fn setup_overworld(
         GridPosition::new(5, 8),
         NPC_COLOR,
         vec![
-            "Welcome! Take a look at my wares.".into(),
-            "We have the finest potions in all the land!".into(),
+            "Welcome! I just received a fresh shipment from the Angara trade route.".into(),
+            "Got potions, antidotes, and some Mercury Mist Elixirs — perfect for cleansing poison.".into(),
+            "If you're planning to brave the Tower of Trials, stock up on healing items. You'll burn through them fast.".into(),
+            "I also carry starter weapons for any new companions you recruit. Every adept needs a good blade.".into(),
+            "A word of advice: the creatures on the upper floors resist certain elements. Bring a balanced party.".into(),
         ],
         Some(ShopKeeper {
             items: vec![
@@ -343,17 +444,24 @@ fn setup_overworld(
                 "short-bow".into(),
             ],
         }),
+        npc_sprite_key("Shopkeeper").and_then(|k| sprite_handles.units.get(k)),
     );
-    spawn_npc(
+    spawn_npc_full(
         &mut commands,
         "Innkeeper",
-        GridPosition::new(22, 8),
+        GridPosition::new(22, 5),
         NPC_COLOR,
         vec![
-            "Rest here to recover your strength.".into(),
-            "That'll be 20 gold. ...Just kidding, it's free for now!".into(),
+            "Welcome to the Golden Sun Inn! You look weary. Come, sit by the fire.".into(),
+            "A traveler passed through last week, pale as a ghost. He muttered about a shadow on the tower's top floor.".into(),
+            "Some folk say there are monsters in the southern caves that haven't been seen in a hundred years.".into(),
+            "I've also heard tell of a great beast that guards the tower's deepest secret. Even the Elder won't speak of it.".into(),
+            "Rest here and I'll have your whole party feeling good as new. Your party has been fully restored!".into(),
         ],
         None,
+        None,
+        Some(InnKeeper { cost: 25 }),
+        npc_sprite_key("Innkeeper").and_then(|k| sprite_handles.units.get(k)),
     );
     spawn_npc(
         &mut commands,
@@ -361,11 +469,164 @@ fn setup_overworld(
         GridPosition::new(15, 5),
         NPC_ALT_COLOR,
         vec![
-            "The path north leads to the Corrupted Tower.".into(),
-            "Only the bravest adventurers dare enter.".into(),
-            "Make sure you have Djinn equipped before you go!".into(),
+            "Halt, traveler. A word of warning before you go further.".into(),
+            "The tall grass north and west of the village is crawling with wild creatures. Step in there unprepared and you won't last long.".into(),
+            "The Tower of Trials lies to the east — you can see its peak from here. Many brave souls have entered. Fewer have returned.".into(),
+            "Make sure you have Djinn equipped and your party at full strength before you stray from the roads.".into(),
+            "If you stick to the stone paths, you'll be safe. The creatures don't venture onto them.".into(),
         ],
         None,
+        npc_sprite_key("Guard").and_then(|k| sprite_handles.units.get(k)),
+    );
+    spawn_npc(
+        &mut commands,
+        "Tower Guard",
+        GridPosition::new(26, 6),
+        NPC_ALT_COLOR,
+        vec![
+            "This is the Tower of Trials, erected by the Alchemy adepts who founded Vale Village centuries ago.".into(),
+            "It was built as a proving ground — ten floors of increasing danger, each guarded by creatures that feed on Psynergy.".into(),
+            "I've watched seasoned warriors flee from the fifth floor with terror in their eyes. Something unnatural lurks there.".into(),
+            "But the rewards are real. Rare Djinn nest within, and ancient artifacts lie waiting for those strong enough to claim them.".into(),
+            "My advice? Bring a full party, stock up on potions and antidotes, and don't be ashamed to retreat if things go wrong.".into(),
+        ],
+        None,
+        npc_sprite_key("Tower Guard").and_then(|k| sprite_handles.units.get(k)),
+    );
+
+    // Flavor NPCs
+    spawn_npc(
+        &mut commands,
+        "Scholar Liam",
+        GridPosition::new(10, 18),
+        NPC_ALT_COLOR,
+        vec![
+            "Ah, a fellow seeker of knowledge! I've devoted my life to studying the elemental arts and the history of Alchemy.".into(),
+            "There are four primal elements: Venus, the earth; Jupiter, the wind; Mercury, the water; and Mars, the flame.".into(),
+            "Each element holds dominion over another. Venus overcomes Jupiter, Jupiter overcomes Mercury, Mercury overcomes Mars, and Mars overcomes Venus.".into(),
+            "Djinn are ancient elemental spirits that bond with adepts. When set in battle, they can unleash devastating summons that shake the very ground.".into(),
+            "Vale Village was founded by Alchemy adepts who sealed a great power within the tower. But the seal weakens with each passing year. That is why the creatures grow bolder.".into(),
+        ],
+        None,
+        npc_sprite_key("Scholar Liam").and_then(|k| sprite_handles.units.get(k)),
+    );
+    spawn_npc(
+        &mut commands,
+        "Little Mia",
+        GridPosition::new(21, 13),
+        NPC_COLOR,
+        vec![
+            "Hey, hey! Are you an adept? A real one? When I grow up, I want to be just like you!".into(),
+            "I snuck out to the caves south of town yesterday... please don't tell my mom!".into(),
+            "I saw strange glowing creatures down there. One looked like a tiny spirit made of golden light — it was so pretty!".into(),
+            "Scholar Liam says Djinn hide in places with strong Psynergy. Maybe that's what I saw? I should tell him!".into(),
+            "Oh! I almost forgot — I found a weird symbol carved into the cave wall. It looked exactly like the rune on the tower door. Spooky, right?".into(),
+        ],
+        None,
+        npc_sprite_key("Little Mia").and_then(|k| sprite_handles.units.get(k)),
+    );
+
+    // Blacksmith (near the shop)
+    spawn_npc(
+        &mut commands,
+        "Blacksmith",
+        GridPosition::new(18, 12),
+        NPC_ALT_COLOR,
+        vec![
+            "The name's Garet. I've worked this forge for twenty years, ever since my old man taught me the trade.".into(),
+            "A good blade needs strong metal and stronger will. Same goes for the adept who wields it.".into(),
+            "The shop sells decent starter gear, but if you want real firepower, you need something forged with Psynergy ore.".into(),
+            "If you find rare materials in the tower — elemental shards, ancient ingots — bring them to me. I can craft weapons the ancients would envy.".into(),
+            "And keep your gear maintained! A chipped sword in the heat of battle is a death sentence.".into(),
+        ],
+        None,
+        npc_sprite_key("Blacksmith").and_then(|k| sprite_handles.units.get(k)),
+    );
+
+    // Fortune Teller (dynamic dialog based on story flags)
+    {
+        let ft_entity = spawn_npc_full(
+            &mut commands,
+            "Fortune Teller",
+            GridPosition::new(6, 14),
+            NPC_ALT_COLOR,
+            vec!["The stars whisper of your destiny, child of Alchemy...".into()],
+            None,
+            None,
+            None,
+            npc_sprite_key("Fortune Teller").and_then(|k| sprite_handles.units.get(k)),
+        );
+        commands.entity(ft_entity).insert(FortuneTellerNpc);
+    }
+
+    // Wandering Merchant
+    spawn_npc(
+        &mut commands,
+        "Wandering Merchant",
+        GridPosition::new(22, 8),
+        NPC_COLOR,
+        vec![
+            "Greetings, friend! The name's Obaba. I've traveled from lands far beyond the eastern mountains.".into(),
+            "In the markets of Lemuria, I once saw Djinn sold in crystal cages. Barbaric, yes, but the power they granted was undeniable.".into(),
+            "There are rare treasures hidden on the deepest floors of towers like yours — artifacts from the age of Alchemy.".into(),
+            "I once met a merchant who sold a single potion for a thousand gold. He claimed it could bring the dead back to life. I believed him.".into(),
+            "If you ever venture beyond Vale Village, seek the port city of Champa. Their wares make our little shop look like a market stall.".into(),
+        ],
+        None,
+        npc_sprite_key("Wandering Merchant").and_then(|k| sprite_handles.units.get(k)),
+    );
+
+    // Recruitment NPCs
+    spawn_npc_full(
+        &mut commands,
+        "Karis",
+        GridPosition::new(12, 8),
+        RECRUIT_NPC_COLOR,
+        vec![
+            "I am Karis, a Wind Seer.".into(),
+            "The winds call me to join your quest!".into(),
+            "Karis joined the party!".into(),
+        ],
+        None,
+        Some(RecruitNpc {
+            unit_id: "wind_seer".into(),
+        }),
+        None,
+        npc_sprite_key("Karis").and_then(|k| sprite_handles.units.get(k)),
+    );
+    spawn_npc_full(
+        &mut commands,
+        "Tyrell",
+        GridPosition::new(18, 14),
+        RECRUIT_NPC_COLOR,
+        vec![
+            "Name's Tyrell. I fight with fire!".into(),
+            "Let me come along. You'll need the firepower!".into(),
+            "Tyrell joined the party!".into(),
+        ],
+        None,
+        Some(RecruitNpc {
+            unit_id: "flame_user".into(),
+        }),
+        None,
+        npc_sprite_key("Tyrell").and_then(|k| sprite_handles.units.get(k)),
+    );
+    spawn_npc_full(
+        &mut commands,
+        "Amiti",
+        GridPosition::new(8, 16),
+        RECRUIT_NPC_COLOR,
+        vec![
+            "I am Amiti, an Aqua Monk.".into(),
+            "I shall lend my healing waters to your cause.".into(),
+            "Amiti joined the party!".into(),
+        ],
+        None,
+        Some(RecruitNpc {
+            unit_id: "aqua_monk".into(),
+        }),
+        None,
+        npc_sprite_key("Amiti").and_then(|k| sprite_handles.units.get(k)),
     );
 
     // Dialog UI (hidden initially)
@@ -425,7 +686,35 @@ fn spawn_npc(
     color: Color,
     dialog: Vec<String>,
     shopkeeper: Option<ShopKeeper>,
+    sprite_handle: Option<&Handle<Image>>,
 ) {
+    spawn_npc_full(
+        commands,
+        name,
+        pos,
+        color,
+        dialog,
+        shopkeeper,
+        None,
+        None,
+        sprite_handle,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_npc_full(
+    commands: &mut Commands,
+    name: &str,
+    pos: GridPosition,
+    color: Color,
+    dialog: Vec<String>,
+    shopkeeper: Option<ShopKeeper>,
+    recruit: Option<RecruitNpc>,
+    innkeeper: Option<InnKeeper>,
+    sprite_handle: Option<&Handle<Image>>,
+) -> Entity {
+    let npc_size = Vec2::new(TILE_SIZE * 0.7, TILE_SIZE * 0.7);
+    let sprite = make_sprite(sprite_handle, color, npc_size);
     let mut npc = commands.spawn((
         OverworldRoot,
         Npc {
@@ -433,22 +722,33 @@ fn spawn_npc(
             dialog,
         },
         pos,
-        Sprite::from_color(color, Vec2::new(TILE_SIZE * 0.7, TILE_SIZE * 0.7)),
+        sprite,
         Transform::from_xyz(pos.x as f32 * TILE_SIZE, -(pos.y as f32) * TILE_SIZE, 5.0),
     ));
 
     if let Some(shopkeeper) = shopkeeper {
         npc.insert(shopkeeper);
     }
+    if let Some(recruit) = recruit {
+        npc.insert(recruit);
+    }
+    if let Some(innkeeper) = innkeeper {
+        npc.insert(innkeeper);
+    }
+    npc.id()
 }
 
 // ── Systems ───────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn player_movement(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     tilemap: Res<TileMap>,
     dialog: Res<DialogState>,
+    tower_state: Res<TowerState>,
+    mut tower_battle_active: ResMut<TowerBattleActive>,
+    mut party: ResMut<Party>,
     mut return_position: ResMut<BattleReturnPosition>,
     mut start_battle_events: EventWriter<StartBattleEvent>,
     mut next_game_state: ResMut<NextState<GameState>>,
@@ -498,10 +798,49 @@ fn player_movement(
                 transform.translation.y = -(ny as f32) * TILE_SIZE;
                 movement.move_cooldown.reset();
 
+                // Tower door interaction: stepping onto the tower door
+                // triggers a tower floor encounter.
+                if nx == 26 && ny == 5 && tilemap.get(nx, ny) == 5 && tower_state.is_active {
+                    let floors = build_floor_definitions();
+                    let floor_idx = (tower_state.current_floor as usize).saturating_sub(1);
+                    if let Some(floor_def) = floors.get(floor_idx) {
+                        let mut rng = rand::thread_rng();
+                        let encounter_pairs = generate_floor_encounter(floor_def, &mut rng);
+                        let registry = enemies::build_enemy_registry();
+                        let enemy_units: Vec<BattleUnit> = encounter_pairs
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(i, (enemy_id, level_bonus))| {
+                                registry.get(enemy_id).map(|def| {
+                                    let mut unit = enemy_definition_to_battle_unit(
+                                        def,
+                                        ENEMY_BATTLE_ID_BASE + i as u32,
+                                    );
+                                    unit.level = (unit.level as i32 + level_bonus).max(1) as u8;
+                                    unit
+                                })
+                            })
+                            .collect();
+                        if !enemy_units.is_empty() {
+                            return_position.player_position = Some(*grid_pos);
+                            tower_battle_active.0 = true;
+                            party.set_flag(story::TOWER_ENTERED, true);
+                            start_battle_events.send(StartBattleEvent {
+                                encounter_id: format!("tower-floor-{}", tower_state.current_floor),
+                                enemy_units,
+                            });
+                            next_battle_phase.set(BattlePhase::CommandSelect);
+                            next_game_state.set(GameState::Battle);
+                            break;
+                        }
+                    }
+                }
+
                 if tilemap.is_encounter_zone(nx, ny) {
                     let mut rng = rand::thread_rng();
                     if rng.gen_bool(ENCOUNTER_CHANCE) {
-                        let enemy_units = build_random_encounter(&mut rng);
+                        let avg_level = get_average_party_level(&party);
+                        let enemy_units = build_random_encounter(&mut rng, avg_level);
                         if !enemy_units.is_empty() {
                             return_position.player_position = Some(*grid_pos);
                             start_battle_events.send(StartBattleEvent {
@@ -519,9 +858,87 @@ fn player_movement(
     }
 }
 
-fn build_random_encounter(rng: &mut impl Rng) -> Vec<BattleUnit> {
-    let mut all_enemies: Vec<EnemyDefinition> =
-        enemies::build_enemy_registry().into_values().collect();
+/// Compute the average level of party members from `Party::unit_levels`.
+/// Returns 1 if the map is empty (e.g. at game start).
+fn get_average_party_level(party: &Party) -> u8 {
+    if party.unit_levels.is_empty() {
+        return 1;
+    }
+    let total: u32 = party
+        .unit_levels
+        .values()
+        .map(|(level, _xp)| *level as u32)
+        .sum();
+    let count = party.unit_levels.len() as u32;
+    (total / count).max(1) as u8
+}
+
+fn build_random_encounter(rng: &mut impl Rng, party_level: u8) -> Vec<BattleUnit> {
+    // Gather the tier-appropriate enemy pool based on the party's average level.
+    let mut all_enemies: Vec<EnemyDefinition> = match party_level {
+        1..=4 => get_enemies_by_tier(1),
+        5..=8 => {
+            // 60% tier 1, 40% tier 2
+            let mut pool = get_enemies_by_tier(1);
+            pool.extend(get_enemies_by_tier(2));
+            let picked: Vec<EnemyDefinition> = pool
+                .into_iter()
+                .filter(|e| {
+                    if e.tier == 1 {
+                        rng.gen_bool(0.6)
+                    } else {
+                        rng.gen_bool(0.4)
+                    }
+                })
+                .collect();
+            if picked.is_empty() {
+                // Fallback: at least return tier-1 enemies so encounters aren't empty.
+                get_enemies_by_tier(1)
+            } else {
+                picked
+            }
+        }
+        9..=12 => {
+            // 60% tier 2, 40% tier 3
+            let mut pool = get_enemies_by_tier(2);
+            pool.extend(get_enemies_by_tier(3));
+            let picked: Vec<EnemyDefinition> = pool
+                .into_iter()
+                .filter(|e| {
+                    if e.tier == 2 {
+                        rng.gen_bool(0.6)
+                    } else {
+                        rng.gen_bool(0.4)
+                    }
+                })
+                .collect();
+            if picked.is_empty() {
+                get_enemies_by_tier(2)
+            } else {
+                picked
+            }
+        }
+        _ => {
+            // 13+: 40% tier 2, 60% tier 3
+            let mut pool = get_enemies_by_tier(2);
+            pool.extend(get_enemies_by_tier(3));
+            let picked: Vec<EnemyDefinition> = pool
+                .into_iter()
+                .filter(|e| {
+                    if e.tier == 2 {
+                        rng.gen_bool(0.4)
+                    } else {
+                        rng.gen_bool(0.6)
+                    }
+                })
+                .collect();
+            if picked.is_empty() {
+                get_enemies_by_tier(3)
+            } else {
+                picked
+            }
+        }
+    };
 
     if all_enemies.is_empty() {
         return Vec::new();
@@ -593,11 +1010,21 @@ fn camera_follow_player(
     cam_tf.translation = cam_tf.translation.lerp(target, 0.1);
 }
 
+#[allow(clippy::type_complexity)]
 fn player_interact(
     keys: Res<ButtonInput<KeyCode>>,
     mut dialog: ResMut<DialogState>,
+    party: Res<Party>,
     player_query: Query<(&GridPosition, &PlayerMovement), With<Player>>,
-    npc_query: Query<(Entity, &GridPosition, &Npc)>,
+    npc_query: Query<(
+        Entity,
+        &GridPosition,
+        &Npc,
+        Option<&RecruitNpc>,
+        Option<&InnKeeper>,
+        Option<&ElderNpc>,
+        Option<&FortuneTellerNpc>,
+    )>,
     mut dialog_box: Query<&mut Visibility, With<DialogBox>>,
     mut dialog_text: Query<&mut Text, With<DialogText>>,
 ) {
@@ -620,13 +1047,42 @@ fn player_interact(
     };
     let face = GridPosition::new(player_pos.x + fx, player_pos.y + fy);
 
-    for (npc_entity, npc_pos, npc) in &npc_query {
+    for (npc_entity, npc_pos, npc, recruit, innkeeper, elder, fortune_teller) in &npc_query {
         if *npc_pos == face {
             dialog.active = true;
             dialog.speaker = npc.name.clone();
-            dialog.lines = npc.dialog.clone();
-            dialog.current_line = 0;
             dialog.speaker_entity = Some(npc_entity);
+            dialog.current_line = 0;
+
+            // Elder NPC: dynamically choose dialog based on story flags.
+            if elder.is_some() {
+                dialog.lines = elder_dialog_lines(&party);
+            // Fortune Teller NPC: dynamically choose hints based on story flags.
+            } else if fortune_teller.is_some() {
+                dialog.lines = fortune_teller_dialog_lines(&party);
+            // If this is an innkeeper NPC, check if the player can afford to rest.
+            } else if let Some(inn) = innkeeper {
+                if party.gold < inn.cost {
+                    dialog.lines = vec![
+                        format!("You need {} gold to rest here.", inn.cost),
+                        "Come back when you have enough coin.".into(),
+                    ];
+                } else {
+                    dialog.lines = npc.dialog.clone();
+                }
+            // If this is a recruit NPC whose unit is already in the party,
+            // show the "already recruited" dialog instead.
+            } else if let Some(recruit) = recruit {
+                let already_in_party = party.active.contains(&recruit.unit_id)
+                    || party.bench.contains(&recruit.unit_id);
+                if already_in_party {
+                    dialog.lines = vec!["Welcome back! Keep fighting the good fight.".into()];
+                } else {
+                    dialog.lines = npc.dialog.clone();
+                }
+            } else {
+                dialog.lines = npc.dialog.clone();
+            }
 
             if let Ok(mut vis) = dialog_box.get_single_mut() {
                 *vis = Visibility::Visible;
@@ -639,10 +1095,16 @@ fn player_interact(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn dialog_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut dialog: ResMut<DialogState>,
+    game_data: Res<GameData>,
     shopkeepers: Query<&ShopKeeper>,
+    recruit_npcs: Query<&RecruitNpc>,
+    innkeepers: Query<&InnKeeper>,
+    elder_npcs: Query<&ElderNpc>,
+    mut party: ResMut<Party>,
     mut current_shop: ResMut<CurrentShop>,
     mut next_game_state: ResMut<NextState<GameState>>,
     mut dialog_box: Query<&mut Visibility, With<DialogBox>>,
@@ -661,16 +1123,68 @@ fn dialog_input(
                 *vis = Visibility::Hidden;
             }
             if let Some(npc_entity) = dialog.speaker_entity.take() {
+                // Check for Elder NPC interaction — set story flag
+                if elder_npcs.get(npc_entity).is_ok() {
+                    party.set_flag(story::TALKED_TO_ELDER, true);
+                }
+
+                // Check for shopkeeper interaction
                 if let Ok(shopkeeper) = shopkeepers.get(npc_entity) {
                     current_shop.items = shopkeeper.items.clone();
                     current_shop.equipment = shopkeeper.equipment.clone();
                     next_game_state.set(GameState::Shop);
                 }
+
+                // Check for recruitment interaction
+                if let Ok(recruit) = recruit_npcs.get(npc_entity) {
+                    let already_in_party = party.active.contains(&recruit.unit_id)
+                        || party.bench.contains(&recruit.unit_id);
+                    if !already_in_party {
+                        if party.active.len() < 4 {
+                            party.active.push(recruit.unit_id.clone());
+                        } else {
+                            party.bench.push(recruit.unit_id.clone());
+                        }
+                        // Set story flag for this recruitment
+                        let flag = match recruit.unit_id.as_str() {
+                            "wind_seer" => Some(story::RECRUITED_KARIS),
+                            "flame_user" => Some(story::RECRUITED_TYRELL),
+                            "aqua_monk" => Some(story::RECRUITED_AMITI),
+                            _ => None,
+                        };
+                        if let Some(f) = flag {
+                            party.set_flag(f, true);
+                        }
+                    }
+                }
+
+                // Check for innkeeper interaction — heal the full party
+                if let Ok(inn) = innkeepers.get(npc_entity)
+                    && party.gold >= inn.cost
+                {
+                    party.gold -= inn.cost;
+                    let all_units: Vec<String> = party
+                        .active
+                        .iter()
+                        .chain(party.bench.iter())
+                        .cloned()
+                        .collect();
+                    for unit_id in &all_units {
+                        if let Some(def) = game_data.units.get(unit_id) {
+                            let level = party
+                                .unit_levels
+                                .get(unit_id)
+                                .map(|(lvl, _xp)| *lvl)
+                                .unwrap_or(1);
+                            let max_hp = def.base_hp + def.growth.hp * (level as i32 - 1);
+                            let max_pp = def.base_pp + def.growth.pp * (level as i32 - 1);
+                            party.unit_hp_pp.insert(unit_id.clone(), (max_hp, max_pp));
+                        }
+                    }
+                }
             }
-        } else {
-            if let Ok(mut text) = dialog_text.get_single_mut() {
-                **text = format!("{}: {}", dialog.speaker, dialog.lines[dialog.current_line]);
-            }
+        } else if let Ok(mut text) = dialog_text.get_single_mut() {
+            **text = format!("{}: {}", dialog.speaker, dialog.lines[dialog.current_line]);
         }
     }
 }
@@ -710,5 +1224,228 @@ fn handle_battle_end(
             next_game_state.set(GameState::Overworld);
             break;
         }
+        // Defeat: transition handled by BattlePhase::Defeat screen in battle_ui.
+        // We still need to consume the event so it doesn't fire repeatedly.
+    }
+}
+
+// ── Elder NPC dialog logic (pure function) ───────────────────────────
+
+/// Returns the dialog lines the Elder should say based on the party's story flags.
+///
+/// Progression tiers (checked from most advanced to least):
+/// 1. Tower completed  → congratulations
+/// 2. Tower entered    → encouragement to push deeper
+/// 3. All 3 recruited  → direct the party to the Tower
+/// 4. Default          → suggest recruiting allies
+fn elder_dialog_lines(party: &Party) -> Vec<String> {
+    if party.has_flag(story::TOWER_COMPLETED) {
+        vec!["You have conquered the Tower! You are a true hero of Vale Village.".into()]
+    } else if party.has_flag(story::TOWER_ENTERED) {
+        vec!["Push deeper into the tower. Floor 5 is a turning point.".into()]
+    } else if party.has_flag(story::RECRUITED_KARIS)
+        && party.has_flag(story::RECRUITED_TYRELL)
+        && party.has_flag(story::RECRUITED_AMITI)
+    {
+        vec!["Your party is strong! The Tower of Trials awaits to the east.".into()]
+    } else {
+        vec![
+            "Welcome, young adept. Seek allies for your journey. Talk to the warriors nearby."
+                .into(),
+        ]
+    }
+}
+
+// ── Fortune Teller NPC dialog logic (pure function) ──────────────────
+
+/// Returns the dialog lines the Fortune Teller should say based on story flags.
+///
+/// Progression tiers (checked from most advanced to least):
+/// 1. Tower completed  → prophecy fulfilled, hint at future adventures
+/// 2. Tower floor 5    → warn about the final guardian
+/// 3. Tower entered    → cryptic encouragement to press on
+/// 4. First battle won → hint about the tower's nature
+/// 5. Talked to Elder  → nudge toward recruitment
+/// 6. Default          → mysterious introduction and general guidance
+fn fortune_teller_dialog_lines(party: &Party) -> Vec<String> {
+    if party.has_flag(story::TOWER_COMPLETED) {
+        vec![
+            "The cards fall silent... the great trial is behind you.".into(),
+            "But do not grow complacent. The stars reveal new shadows gathering beyond the mountains.".into(),
+            "Your destiny is far from complete, child of Alchemy. Greater trials await in distant lands.".into(),
+        ]
+    } else if party.has_flag(story::TOWER_FLOOR_5) {
+        vec![
+            "I see darkness... a guardian of immense power bars your path on the final floors.".into(),
+            "It feeds on the fear of those who challenge it. Steel your heart, or it will consume you.".into(),
+            "The key to victory lies in the balance of elements. No single force can overcome it alone.".into(),
+        ]
+    } else if party.has_flag(story::TOWER_ENTERED) {
+        vec![
+            "The tower has tasted your resolve... and found it wanting? No — not yet.".into(),
+            "I see floors yet unclimbed, enemies yet unvanquished. Press onward, but do not rush."
+                .into(),
+            "The spirits within grow restless. They sense your Psynergy. Use it wisely.".into(),
+        ]
+    } else if party.has_flag(story::FIRST_BATTLE_WON) {
+        vec![
+            "Ah, I sense the mark of battle upon you. You have tasted combat and survived.".into(),
+            "The tower to the east calls to those with such strength. Its stones hum with ancient Psynergy.".into(),
+            "But beware — the tower tests more than muscle. It tests the bonds between allies.".into(),
+        ]
+    } else if party.has_flag(story::TALKED_TO_ELDER) {
+        vec![
+            "The Elder has spoken to you... good. Her wisdom is not to be taken lightly.".into(),
+            "I see companions in your future — a wind seer, a flame wielder, and a water sage."
+                .into(),
+            "Seek them out before you face the tower. Alone, even the strongest adept will falter."
+                .into(),
+        ]
+    } else {
+        vec![
+            "Welcome, traveler... I have been expecting you. The stars told me of your coming.".into(),
+            "I am a reader of fates. The Psynergy that flows through this land speaks to me in whispers.".into(),
+            "Your path is shrouded in mist, but I see a great trial ahead. Speak to the Elder — she will set you on your way.".into(),
+        ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn elder_dialog_default_no_flags() {
+        let party = Party::default();
+        let lines = elder_dialog_lines(&party);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("Seek allies"));
+    }
+
+    #[test]
+    fn elder_dialog_after_partial_recruit() {
+        let mut party = Party::default();
+        party.set_flag(story::RECRUITED_KARIS, true);
+        party.set_flag(story::RECRUITED_TYRELL, true);
+        // Amiti not yet recruited — should still show default
+        let lines = elder_dialog_lines(&party);
+        assert!(lines[0].contains("Seek allies"));
+    }
+
+    #[test]
+    fn elder_dialog_all_recruited() {
+        let mut party = Party::default();
+        party.set_flag(story::RECRUITED_KARIS, true);
+        party.set_flag(story::RECRUITED_TYRELL, true);
+        party.set_flag(story::RECRUITED_AMITI, true);
+        let lines = elder_dialog_lines(&party);
+        assert!(lines[0].contains("Tower of Trials"));
+    }
+
+    #[test]
+    fn elder_dialog_tower_entered() {
+        let mut party = Party::default();
+        party.set_flag(story::RECRUITED_KARIS, true);
+        party.set_flag(story::RECRUITED_TYRELL, true);
+        party.set_flag(story::RECRUITED_AMITI, true);
+        party.set_flag(story::TOWER_ENTERED, true);
+        let lines = elder_dialog_lines(&party);
+        assert!(lines[0].contains("Floor 5"));
+    }
+
+    #[test]
+    fn elder_dialog_tower_completed() {
+        let mut party = Party::default();
+        party.set_flag(story::TOWER_COMPLETED, true);
+        let lines = elder_dialog_lines(&party);
+        assert!(lines[0].contains("conquered the Tower"));
+    }
+
+    #[test]
+    fn elder_dialog_tower_completed_overrides_entered() {
+        let mut party = Party::default();
+        party.set_flag(story::TOWER_ENTERED, true);
+        party.set_flag(story::TOWER_COMPLETED, true);
+        let lines = elder_dialog_lines(&party);
+        // Completed takes priority over entered
+        assert!(lines[0].contains("conquered the Tower"));
+    }
+
+    // ── Fortune Teller dialog tests ──────────────────────────────────
+
+    #[test]
+    fn fortune_teller_default_no_flags() {
+        let party = Party::default();
+        let lines = fortune_teller_dialog_lines(&party);
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("expecting you"));
+        assert!(lines[2].contains("Elder"));
+    }
+
+    #[test]
+    fn fortune_teller_after_talked_to_elder() {
+        let mut party = Party::default();
+        party.set_flag(story::TALKED_TO_ELDER, true);
+        let lines = fortune_teller_dialog_lines(&party);
+        assert_eq!(lines.len(), 3);
+        assert!(lines[1].contains("companions"));
+    }
+
+    #[test]
+    fn fortune_teller_after_first_battle() {
+        let mut party = Party::default();
+        party.set_flag(story::FIRST_BATTLE_WON, true);
+        let lines = fortune_teller_dialog_lines(&party);
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("mark of battle"));
+    }
+
+    #[test]
+    fn fortune_teller_tower_entered() {
+        let mut party = Party::default();
+        party.set_flag(story::TOWER_ENTERED, true);
+        let lines = fortune_teller_dialog_lines(&party);
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("tower has tasted"));
+    }
+
+    #[test]
+    fn fortune_teller_tower_floor_5() {
+        let mut party = Party::default();
+        party.set_flag(story::TOWER_FLOOR_5, true);
+        let lines = fortune_teller_dialog_lines(&party);
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("guardian"));
+        assert!(lines[2].contains("balance of elements"));
+    }
+
+    #[test]
+    fn fortune_teller_tower_completed() {
+        let mut party = Party::default();
+        party.set_flag(story::TOWER_COMPLETED, true);
+        let lines = fortune_teller_dialog_lines(&party);
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("great trial is behind you"));
+        assert!(lines[2].contains("Greater trials"));
+    }
+
+    #[test]
+    fn fortune_teller_completed_overrides_floor_5() {
+        let mut party = Party::default();
+        party.set_flag(story::TOWER_FLOOR_5, true);
+        party.set_flag(story::TOWER_COMPLETED, true);
+        let lines = fortune_teller_dialog_lines(&party);
+        // Completed takes priority over floor 5
+        assert!(lines[0].contains("great trial is behind you"));
+    }
+
+    #[test]
+    fn fortune_teller_tower_entered_overrides_first_battle() {
+        let mut party = Party::default();
+        party.set_flag(story::FIRST_BATTLE_WON, true);
+        party.set_flag(story::TOWER_ENTERED, true);
+        let lines = fortune_teller_dialog_lines(&party);
+        // Tower entered takes priority over first battle
+        assert!(lines[0].contains("tower has tasted"));
     }
 }

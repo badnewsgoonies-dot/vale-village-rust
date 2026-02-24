@@ -594,3 +594,97 @@ pub fn build_unit_registry() -> HashMap<String, UnitDefinition> {
 
     m
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn test_unit_count() {
+        let registry = build_unit_registry();
+        assert_eq!(
+            registry.len(),
+            10,
+            "Expected exactly 10 units, got {}",
+            registry.len()
+        );
+    }
+
+    #[test]
+    fn test_all_units_have_abilities() {
+        let registry = build_unit_registry();
+        for (id, unit) in &registry {
+            assert!(
+                !unit.abilities.is_empty(),
+                "Unit '{}' should have at least 1 ability unlock",
+                id
+            );
+        }
+    }
+
+    #[test]
+    fn test_adept_is_venus() {
+        let registry = build_unit_registry();
+        let adept = registry
+            .get("adept")
+            .expect("Adept unit should exist in registry");
+        assert_eq!(
+            adept.element,
+            Element::Venus,
+            "Adept should be Venus element"
+        );
+    }
+
+    #[test]
+    fn test_growth_rates_positive() {
+        let registry = build_unit_registry();
+        for (id, unit) in &registry {
+            let g = &unit.growth;
+            assert!(g.hp >= 0, "Unit '{}' has negative hp growth: {}", id, g.hp);
+            assert!(g.pp >= 0, "Unit '{}' has negative pp growth: {}", id, g.pp);
+            assert!(
+                g.atk >= 0,
+                "Unit '{}' has negative atk growth: {}",
+                id,
+                g.atk
+            );
+            assert!(
+                g.def >= 0,
+                "Unit '{}' has negative def growth: {}",
+                id,
+                g.def
+            );
+            assert!(
+                g.mag >= 0,
+                "Unit '{}' has negative mag growth: {}",
+                id,
+                g.mag
+            );
+            assert!(
+                g.spd >= 0,
+                "Unit '{}' has negative spd growth: {}",
+                id,
+                g.spd
+            );
+        }
+    }
+
+    #[test]
+    fn test_unique_unit_ids() {
+        let registry = build_unit_registry();
+        let mut seen = HashSet::new();
+        for (id, unit) in &registry {
+            assert_eq!(
+                id, &unit.id,
+                "Registry key '{}' should match unit id '{}'",
+                id, unit.id
+            );
+            assert!(
+                seen.insert(unit.id.clone()),
+                "Duplicate unit id found: '{}'",
+                unit.id
+            );
+        }
+    }
+}

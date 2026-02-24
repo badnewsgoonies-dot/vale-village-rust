@@ -5,4 +5,6 @@ pub mod inventory;
 pub mod overworld;
 pub mod save;
 pub mod shop;
+pub mod sprites;
+pub mod tower;
 pub mod ui;
