@@ -7,7 +7,7 @@
 use bevy::prelude::*;
 use rand::Rng;
 
-use super::core_plugin::{GameData, GameState, Party};
+use super::core_plugin::{GameData, GameState, Party, story};
 use super::shop::CurrentShop;
 use super::tower::{
     TowerBattleActive, TowerState, build_floor_definitions, generate_floor_encounter,
@@ -611,7 +611,7 @@ fn player_movement(
     dialog: Res<DialogState>,
     tower_state: Res<TowerState>,
     mut tower_battle_active: ResMut<TowerBattleActive>,
-    party: Res<Party>,
+    mut party: ResMut<Party>,
     mut return_position: ResMut<BattleReturnPosition>,
     mut start_battle_events: EventWriter<StartBattleEvent>,
     mut next_game_state: ResMut<NextState<GameState>>,
@@ -687,6 +687,7 @@ fn player_movement(
                         if !enemy_units.is_empty() {
                             return_position.player_position = Some(*grid_pos);
                             tower_battle_active.0 = true;
+                            party.set_flag(story::TOWER_ENTERED, true);
                             start_battle_events.send(StartBattleEvent {
                                 encounter_id: format!("tower-floor-{}", tower_state.current_floor),
                                 enemy_units,
@@ -992,6 +993,16 @@ fn dialog_input(
                             party.active.push(recruit.unit_id.clone());
                         } else {
                             party.bench.push(recruit.unit_id.clone());
+                        }
+                        // Set story flag for this recruitment
+                        let flag = match recruit.unit_id.as_str() {
+                            "wind_seer" => Some(story::RECRUITED_KARIS),
+                            "flame_user" => Some(story::RECRUITED_TYRELL),
+                            "aqua_monk" => Some(story::RECRUITED_AMITI),
+                            _ => None,
+                        };
+                        if let Some(f) = flag {
+                            party.set_flag(f, true);
                         }
                     }
                 }

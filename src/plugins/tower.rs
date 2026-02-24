@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use rand::Rng;
 
-use super::core_plugin::GameState;
+use super::core_plugin::{GameState, Party, story};
 
 // ---------------------------------------------------------------------------
 // Resources
@@ -267,6 +267,7 @@ pub fn advance_floor(tower_state: &mut TowerState) -> Option<u8> {
 pub fn check_tower_victory(
     mut tower_state: ResMut<TowerState>,
     mut tower_battle_active: ResMut<TowerBattleActive>,
+    mut party: ResMut<Party>,
 ) {
     if !tower_battle_active.0 {
         return;
@@ -277,6 +278,9 @@ pub fn check_tower_victory(
     match result {
         Some(new_floor) => {
             info!("Tower advanced to floor {}/{}", new_floor, MAX_FLOOR);
+            if new_floor >= 5 {
+                party.set_flag(story::TOWER_FLOOR_5, true);
+            }
         }
         None => {
             // current_floor was already at MAX_FLOOR — mark it cleared manually
@@ -286,6 +290,8 @@ pub fn check_tower_victory(
             }
             info!("Tower of Trials completed!");
             tower_state.is_active = false;
+            party.set_flag(story::TOWER_FLOOR_5, true);
+            party.set_flag(story::TOWER_COMPLETED, true);
         }
     }
 

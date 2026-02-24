@@ -11,7 +11,7 @@ use rand::rngs::StdRng;
 use crate::battle::{ai, damage, djinn, rewards, status, turn_order, types::*};
 use crate::components::battle::PartyCombatant;
 use crate::data::items::ItemCategory;
-use crate::plugins::core_plugin::{GameData, GameState, Party};
+use crate::plugins::core_plugin::{GameData, GameState, Party, story};
 
 // ---------------------------------------------------------------------------
 // Resources
@@ -1340,6 +1340,11 @@ pub fn victory_system(
     // Add dropped items to party inventory
     for item_id in &battle_rewards.item_drops {
         party.inventory.push(item_id.clone());
+    }
+
+    // Set first battle won story flag
+    if !party.has_flag(story::FIRST_BATTLE_WON) {
+        party.set_flag(story::FIRST_BATTLE_WON, true);
     }
 
     end_events.send(EndBattleEvent {
