@@ -444,6 +444,7 @@ fn spawn_npc(
 
 // ── Systems ───────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn player_movement(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
@@ -660,17 +661,15 @@ fn dialog_input(
             if let Ok(mut vis) = dialog_box.get_single_mut() {
                 *vis = Visibility::Hidden;
             }
-            if let Some(npc_entity) = dialog.speaker_entity.take() {
-                if let Ok(shopkeeper) = shopkeepers.get(npc_entity) {
-                    current_shop.items = shopkeeper.items.clone();
-                    current_shop.equipment = shopkeeper.equipment.clone();
-                    next_game_state.set(GameState::Shop);
-                }
+            if let Some(npc_entity) = dialog.speaker_entity.take()
+                && let Ok(shopkeeper) = shopkeepers.get(npc_entity)
+            {
+                current_shop.items = shopkeeper.items.clone();
+                current_shop.equipment = shopkeeper.equipment.clone();
+                next_game_state.set(GameState::Shop);
             }
-        } else {
-            if let Ok(mut text) = dialog_text.get_single_mut() {
-                **text = format!("{}: {}", dialog.speaker, dialog.lines[dialog.current_line]);
-            }
+        } else if let Ok(mut text) = dialog_text.get_single_mut() {
+            **text = format!("{}: {}", dialog.speaker, dialog.lines[dialog.current_line]);
         }
     }
 }

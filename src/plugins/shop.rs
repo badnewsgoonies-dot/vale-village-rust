@@ -415,9 +415,33 @@ fn update_shop_ui(
     data: Res<GameData>,
     shop: Res<CurrentShop>,
     mut commands: Commands,
-    mut gold_query: Query<&mut Text, (With<ShopGoldText>, Without<ShopTabText>, Without<ShopMessageText>, Without<ShopItemText>)>,
-    mut tab_query: Query<&mut Text, (With<ShopTabText>, Without<ShopGoldText>, Without<ShopMessageText>, Without<ShopItemText>)>,
-    mut message_query: Query<(&mut Text, &mut TextColor), (With<ShopMessageText>, Without<ShopGoldText>, Without<ShopTabText>, Without<ShopItemText>)>,
+    mut gold_query: Query<
+        &mut Text,
+        (
+            With<ShopGoldText>,
+            Without<ShopTabText>,
+            Without<ShopMessageText>,
+            Without<ShopItemText>,
+        ),
+    >,
+    mut tab_query: Query<
+        &mut Text,
+        (
+            With<ShopTabText>,
+            Without<ShopGoldText>,
+            Without<ShopMessageText>,
+            Without<ShopItemText>,
+        ),
+    >,
+    mut message_query: Query<
+        (&mut Text, &mut TextColor),
+        (
+            With<ShopMessageText>,
+            Without<ShopGoldText>,
+            Without<ShopTabText>,
+            Without<ShopItemText>,
+        ),
+    >,
     item_list_query: Query<Entity, With<ShopItemList>>,
     item_text_query: Query<Entity, With<ShopItemText>>,
 ) {

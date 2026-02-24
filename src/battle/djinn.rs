@@ -168,15 +168,16 @@ pub fn calculate_set_bonuses(
     let mut pp = 0;
 
     for tracker in &djinn_state.trackers {
-        if tracker.owner_unit_id == unit_id && tracker.state == DjinnBattleState::Set {
-            if let Some(djinn_def) = djinn_registry.get(&tracker.djinn_id) {
-                atk += djinn_def.set_bonus.atk;
-                def += djinn_def.set_bonus.def;
-                mag += djinn_def.set_bonus.mag;
-                spd += djinn_def.set_bonus.spd;
-                hp += djinn_def.set_bonus.hp;
-                pp += djinn_def.set_bonus.pp;
-            }
+        if tracker.owner_unit_id == unit_id
+            && tracker.state == DjinnBattleState::Set
+            && let Some(djinn_def) = djinn_registry.get(&tracker.djinn_id)
+        {
+            atk += djinn_def.set_bonus.atk;
+            def += djinn_def.set_bonus.def;
+            mag += djinn_def.set_bonus.mag;
+            spd += djinn_def.set_bonus.spd;
+            hp += djinn_def.set_bonus.hp;
+            pp += djinn_def.set_bonus.pp;
         }
     }
 
@@ -192,10 +193,11 @@ pub fn get_granted_abilities(
 ) -> Vec<String> {
     let mut abilities = Vec::new();
     for tracker in &djinn_state.trackers {
-        if tracker.owner_unit_id == unit_id && tracker.state == DjinnBattleState::Set {
-            if let Some(djinn_def) = djinn_registry.get(&tracker.djinn_id) {
-                abilities.extend(djinn_def.granted_ability_ids.clone());
-            }
+        if tracker.owner_unit_id == unit_id
+            && tracker.state == DjinnBattleState::Set
+            && let Some(djinn_def) = djinn_registry.get(&tracker.djinn_id)
+        {
+            abilities.extend(djinn_def.granted_ability_ids.clone());
         }
     }
     abilities
@@ -542,7 +544,9 @@ mod tests {
     // Helper: build a small djinn registry for tests
     // -----------------------------------------------------------------------
 
-    use crate::data::djinn::{DjinnDefinition, DjinnTier, StatModifier, SummonEffect, SummonEffectKind};
+    use crate::data::djinn::{
+        DjinnDefinition, DjinnTier, StatModifier, SummonEffect, SummonEffectKind,
+    };
 
     fn make_test_registry() -> HashMap<String, DjinnDefinition> {
         let mut reg = HashMap::new();
@@ -675,11 +679,11 @@ mod tests {
         ]);
         let registry = make_test_registry();
         let (atk, def, mag, spd, hp, pp) = calculate_set_bonuses(1, &state, &registry);
-        assert_eq!(atk, 3);       // only flint contributes atk
-        assert_eq!(def, 2 + 5);   // flint(2) + granite(5)
+        assert_eq!(atk, 3); // only flint contributes atk
+        assert_eq!(def, 2 + 5); // flint(2) + granite(5)
         assert_eq!(mag, 0);
         assert_eq!(spd, 0);
-        assert_eq!(hp, 10);       // only granite contributes hp
+        assert_eq!(hp, 10); // only granite contributes hp
         assert_eq!(pp, 0);
     }
 
@@ -776,8 +780,7 @@ mod tests {
     fn test_summon_enhanced_single_damage() {
         let mut state = make_djinn_state(&[("flint", 1, DjinnBattleState::Standby)]);
         let registry = make_test_registry();
-        let result =
-            summon_djinn_enhanced(&["flint".into()], 5, &mut state, &registry).unwrap();
+        let result = summon_djinn_enhanced(&["flint".into()], 5, &mut state, &registry).unwrap();
         assert_eq!(result.total_damage, 80);
         assert_eq!(result.total_healing, 0);
         assert!(result.status_inflicts.is_empty());
@@ -794,13 +797,9 @@ mod tests {
             ("forge", 1, DjinnBattleState::Standby),
         ]);
         let registry = make_test_registry();
-        let result = summon_djinn_enhanced(
-            &["flint".into(), "forge".into()],
-            5,
-            &mut state,
-            &registry,
-        )
-        .unwrap();
+        let result =
+            summon_djinn_enhanced(&["flint".into(), "forge".into()], 5, &mut state, &registry)
+                .unwrap();
         assert_eq!(result.total_damage, 80 + 120); // flint(80) + forge(120)
         assert_eq!(result.total_healing, 0);
     }
@@ -809,8 +808,7 @@ mod tests {
     fn test_summon_enhanced_heal_effect() {
         let mut state = make_djinn_state(&[("fizz", 1, DjinnBattleState::Standby)]);
         let registry = make_test_registry();
-        let result =
-            summon_djinn_enhanced(&["fizz".into()], 5, &mut state, &registry).unwrap();
+        let result = summon_djinn_enhanced(&["fizz".into()], 5, &mut state, &registry).unwrap();
         assert_eq!(result.total_damage, 0);
         assert_eq!(result.total_healing, 100);
     }
@@ -819,8 +817,7 @@ mod tests {
     fn test_summon_enhanced_buff_effect() {
         let mut state = make_djinn_state(&[("granite", 1, DjinnBattleState::Standby)]);
         let registry = make_test_registry();
-        let result =
-            summon_djinn_enhanced(&["granite".into()], 5, &mut state, &registry).unwrap();
+        let result = summon_djinn_enhanced(&["granite".into()], 5, &mut state, &registry).unwrap();
         assert_eq!(result.total_damage, 0);
         assert_eq!(result.total_healing, 0);
         assert_eq!(result.stat_buffs.len(), 1);
@@ -831,8 +828,7 @@ mod tests {
     fn test_summon_enhanced_status_inflict() {
         let mut state = make_djinn_state(&[("fever", 1, DjinnBattleState::Standby)]);
         let registry = make_test_registry();
-        let result =
-            summon_djinn_enhanced(&["fever".into()], 5, &mut state, &registry).unwrap();
+        let result = summon_djinn_enhanced(&["fever".into()], 5, &mut state, &registry).unwrap();
         assert_eq!(result.total_damage, 0);
         assert_eq!(result.status_inflicts.len(), 1);
         assert_eq!(result.status_inflicts[0], ("burn".into(), 3));
@@ -882,8 +878,16 @@ mod tests {
             &registry,
         )
         .unwrap();
-        let granite_tracker = state.trackers.iter().find(|t| t.djinn_id == "granite").unwrap();
-        let forge_tracker = state.trackers.iter().find(|t| t.djinn_id == "forge").unwrap();
+        let granite_tracker = state
+            .trackers
+            .iter()
+            .find(|t| t.djinn_id == "granite")
+            .unwrap();
+        let forge_tracker = state
+            .trackers
+            .iter()
+            .find(|t| t.djinn_id == "forge")
+            .unwrap();
         assert_eq!(granite_tracker.recovery_turns_remaining, 3);
         assert_eq!(forge_tracker.recovery_turns_remaining, 2);
     }
@@ -910,8 +914,7 @@ mod tests {
     fn test_summon_enhanced_rejects_missing_definition() {
         let mut state = make_djinn_state(&[("unknown-djinn", 1, DjinnBattleState::Standby)]);
         let registry = make_test_registry();
-        let result =
-            summon_djinn_enhanced(&["unknown-djinn".into()], 5, &mut state, &registry);
+        let result = summon_djinn_enhanced(&["unknown-djinn".into()], 5, &mut state, &registry);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("no definition"));
     }
