@@ -9,6 +9,7 @@ use crate::data::{
     items::{EquipmentDefinition, ItemDefinition},
     units::UnitDefinition,
 };
+use crate::components::stats::Element;
 
 // ---------------------------------------------------------------------------
 // Game state -- top-level state machine for screen transitions

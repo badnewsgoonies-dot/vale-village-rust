@@ -1,10 +1,11 @@
-//! UI screens: Main Menu, Pause Menu, Settings.
+//! UI screens: Main Menu, Pause Menu, Settings, Tutorial overlay.
 //!
 //! Uses the `GameState` from `core_plugin`. The initial state is `Loading` which
 //! transitions to `MainMenu` automatically (handled in core_plugin). This plugin
 //! builds the MainMenu UI, Pause overlay, and Settings screen.
 
 use bevy::prelude::*;
+use std::collections::HashMap;
 use bevy::window::{PrimaryWindow, WindowMode, WindowResolution};
 
 use super::audio::AudioSettings;
@@ -77,6 +78,104 @@ struct SettingsValueText {
 
 #[derive(Component)]
 pub struct FadeOverlay;
+
+// ── Tutorial / Onboarding system ──────────────────────────────────────
+
+/// Marker component for tutorial overlay tip UI entities.
+#[derive(Component)]
+struct TutorialTip {
+    /// Identifies which tip this entity displays.
+    #[allow(dead_code)]
+    key: String,
+}
+
+/// Tracks which tutorial tips have already been shown so each tip appears at most once.
+#[derive(Resource, Debug, Default, Clone)]
+pub struct TutorialState {
+    /// Map of tip key -> whether it has been shown.
+    pub shown: HashMap<String, bool>,
+}
+
+impl TutorialState {
+    /// Record a tip as shown so it won't be displayed again.
+    pub fn mark_shown(&mut self, key: &str) {
+        self.shown.insert(key.to_string(), true);
+    }
+
+    /// Returns `true` if the tip has already been shown.
+    pub fn was_shown(&self, key: &str) -> bool {
+        self.shown.get(key).copied().unwrap_or(false)
+    }
+}
+
+/// Player-facing setting to enable or disable tutorial tips entirely.
+#[derive(Resource, Debug, Clone)]
+pub struct TutorialSettings {
+    pub enabled: bool,
+}
+
+impl Default for TutorialSettings {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+/// A queued tutorial tip waiting to be displayed.
+#[derive(Resource, Debug, Clone)]
+struct PendingTutorialTip {
+    key: String,
+    message: String,
+    /// How long the tip has been visible (seconds).
+    elapsed: f32,
+    /// Total display duration before auto-dismiss (seconds).
+    duration: f32,
+}
+
+/// Static definitions for all tutorial tips.
+struct TutorialTipDef {
+    key: &'static str,
+    message: &'static str,
+    #[allow(dead_code)]
+    trigger_state: GameState,
+    duration: f32,
+}
+
+const TUTORIAL_TIPS: &[TutorialTipDef] = &[
+    TutorialTipDef {
+        key: "welcome",
+        message: "Welcome to Vale Village! Use arrow keys to move. Talk to NPCs with Enter.",
+        trigger_state: GameState::Overworld,
+        duration: 6.0,
+    },
+    TutorialTipDef {
+        key: "first_battle",
+        message: "Choose your actions wisely! Attack deals physical damage. Psynergy uses PP for magical abilities.",
+        trigger_state: GameState::Battle,
+        duration: 7.0,
+    },
+    TutorialTipDef {
+        key: "first_shop",
+        message: "Buy equipment to power up your party. Sell items you don't need for gold.",
+        trigger_state: GameState::Shop,
+        duration: 6.0,
+    },
+    TutorialTipDef {
+        key: "first_djinn",
+        message: "Djinn boost your stats and can be summoned for powerful attacks in battle!",
+        trigger_state: GameState::Battle,
+        duration: 6.0,
+    },
+    TutorialTipDef {
+        key: "tower_intro",
+        message: "The Sol Sanctum Tower has 10 floors of increasing difficulty. Prepare well!",
+        trigger_state: GameState::Overworld,
+        duration: 6.0,
+    },
+];
+
+/// Root marker for the tutorial tip overlay UI.
+#[derive(Component)]
+struct TutorialTipRoot;
 
 // ── Resources ─────────────────────────────────────────────────────────
 
@@ -223,6 +322,8 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ScreenTransition>()
             .init_resource::<DisplaySettings>()
+            .init_resource::<TutorialState>()
+            .init_resource::<TutorialSettings>()
             // Persistent systems
             .add_systems(Startup, spawn_fade_overlay)
             .add_systems(Update, screen_transition_system)
