@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use rand::Rng;
 
 use super::core_plugin::{GameState, Party, story};
+use super::save::{SaveData, SaveSystem};
 
 // ---------------------------------------------------------------------------
 // Resources
@@ -34,6 +35,17 @@ impl Default for TowerState {
 /// to decide whether to advance the tower floor.
 #[derive(Debug, Clone, Default, Resource, Reflect)]
 pub struct TowerBattleActive(pub bool);
+
+// ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
+
+/// Fired by `check_tower_victory` after a floor transition to trigger an
+/// auto-save. A separate exclusive system (`handle_auto_save_event`) drains
+/// this event and performs the actual save, since building `SaveData` requires
+/// `&mut World`.
+#[derive(Event, Debug, Clone)]
+pub struct AutoSaveEvent;
 
 // ---------------------------------------------------------------------------
 // Floor definitions
@@ -264,10 +276,12 @@ pub fn advance_floor(tower_state: &mut TowerState) -> Option<u8> {
 ///    `advance_floor` returns `None` because floor 10 was the current floor),
 ///    logs a completion message and deactivates the tower.
 /// 3. Resets the `TowerBattleActive` flag to `false`.
+/// 4. Fires an `AutoSaveEvent` to trigger an auto-save.
 pub fn check_tower_victory(
     mut tower_state: ResMut<TowerState>,
     mut tower_battle_active: ResMut<TowerBattleActive>,
     mut party: ResMut<Party>,
+    mut auto_save_events: EventWriter<AutoSaveEvent>,
 ) {
     if !tower_battle_active.0 {
         return;
@@ -295,7 +309,44 @@ pub fn check_tower_victory(
         }
     }
 
+    // Trigger auto-save after every floor transition.
+    auto_save_events.send(AutoSaveEvent);
+
     tower_battle_active.0 = false;
+}
+
+// ---------------------------------------------------------------------------
+// Auto-save handler
+// ---------------------------------------------------------------------------
+
+/// Exclusive system that drains `AutoSaveEvent`s and performs the auto-save.
+///
+/// This must be an exclusive system because `SaveData::from_game_state`
+/// requires `&mut World`. It reads all pending `AutoSaveEvent`s, and if any
+/// are present, builds a `SaveData` snapshot and writes it to slot 0.
+fn handle_auto_save_event(world: &mut World) {
+    let has_events = {
+        let Some(mut events) = world.get_resource_mut::<Events<AutoSaveEvent>>() else {
+            return;
+        };
+        let mut reader = events.get_cursor();
+        let any = reader.read(&events).next().is_some();
+        // Drain all events so they don't accumulate.
+        events.clear();
+        any
+    };
+
+    if !has_events {
+        return;
+    }
+
+    info!("Auto-saving after tower floor transition...");
+    let save_data = SaveData::from_game_state(world);
+    let Some(save_system) = world.get_resource::<SaveSystem>() else {
+        warn!("Auto-save skipped: SaveSystem resource not found");
+        return;
+    };
+    save_system.auto_save(&save_data);
 }
 
 /// Returns a human-readable summary of the tower progress after a floor clear.
@@ -329,7 +380,12 @@ impl Plugin for TowerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TowerState>()
             .init_resource::<TowerBattleActive>()
-            .add_systems(OnEnter(GameState::Overworld), check_tower_victory);
+            .add_event::<AutoSaveEvent>()
+            .add_systems(OnEnter(GameState::Overworld), check_tower_victory)
+            .add_systems(
+                OnEnter(GameState::Overworld),
+                handle_auto_save_event.after(check_tower_victory),
+            );
     }
 }
 
@@ -464,7 +520,7 @@ mod tests {
         let mut active = TowerBattleActive(true);
 
         // Simulate the system logic directly (pure-function style)
-        check_tower_victory_logic(&mut tower_state, &mut active);
+        let fired = check_tower_victory_logic(&mut tower_state, &mut active);
 
         assert_eq!(tower_state.current_floor, 4);
         assert_eq!(tower_state.max_floor_reached, 4);
@@ -474,6 +530,7 @@ mod tests {
             "Tower should still be active mid-run"
         );
         assert!(!active.0, "TowerBattleActive should be reset to false");
+        assert!(fired, "AutoSaveEvent should be fired on floor advance");
     }
 
     #[test]
@@ -486,7 +543,7 @@ mod tests {
         };
         let mut active = TowerBattleActive(true);
 
-        check_tower_victory_logic(&mut tower_state, &mut active);
+        let fired = check_tower_victory_logic(&mut tower_state, &mut active);
 
         // advance_floor returns None at floor 10, so current_floor stays 10
         assert_eq!(tower_state.current_floor, 10);
@@ -499,6 +556,7 @@ mod tests {
             "Tower should be deactivated on completion"
         );
         assert!(!active.0);
+        assert!(fired, "AutoSaveEvent should be fired on tower completion");
     }
 
     #[test]
@@ -511,12 +569,80 @@ mod tests {
         };
         let mut active = TowerBattleActive(false);
 
-        check_tower_victory_logic(&mut tower_state, &mut active);
+        let fired = check_tower_victory_logic(&mut tower_state, &mut active);
 
         // Nothing should change since the flag was false
         assert_eq!(tower_state.current_floor, 5);
         assert_eq!(tower_state.floors_cleared.len(), 4);
         assert!(tower_state.is_active);
+        assert!(
+            !fired,
+            "AutoSaveEvent should NOT be fired when battle is inactive"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Auto-save event tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_auto_save_event_fired_on_floor_advance() {
+        let mut tower_state = TowerState {
+            current_floor: 1,
+            max_floor_reached: 1,
+            is_active: true,
+            floors_cleared: vec![],
+        };
+        let mut active = TowerBattleActive(true);
+
+        let fired = check_tower_victory_logic(&mut tower_state, &mut active);
+
+        assert!(
+            fired,
+            "AutoSaveEvent should be fired when floor advances from 1 to 2"
+        );
+        assert_eq!(tower_state.current_floor, 2);
+    }
+
+    #[test]
+    fn test_auto_save_event_not_fired_when_no_battle() {
+        let mut tower_state = TowerState {
+            current_floor: 3,
+            max_floor_reached: 3,
+            is_active: true,
+            floors_cleared: vec![1, 2],
+        };
+        let mut active = TowerBattleActive(false);
+
+        let fired = check_tower_victory_logic(&mut tower_state, &mut active);
+
+        assert!(
+            !fired,
+            "AutoSaveEvent should not be fired when TowerBattleActive is false"
+        );
+        // State should be unchanged
+        assert_eq!(tower_state.current_floor, 3);
+        assert_eq!(tower_state.floors_cleared.len(), 2);
+    }
+
+    #[test]
+    fn test_auto_save_event_fired_on_final_floor() {
+        let mut tower_state = TowerState {
+            current_floor: 10,
+            max_floor_reached: 10,
+            is_active: true,
+            floors_cleared: (1..10).collect(),
+        };
+        let mut active = TowerBattleActive(true);
+
+        let fired = check_tower_victory_logic(&mut tower_state, &mut active);
+
+        assert!(
+            fired,
+            "AutoSaveEvent should be fired even on the final floor completion"
+        );
+        assert!(tower_state.floors_cleared.contains(&10));
+        assert!(!tower_state.is_active);
     }
 
     #[test]
@@ -570,13 +696,14 @@ mod tests {
     }
 
     /// Helper that mirrors the `check_tower_victory` system logic without
-    /// requiring a full Bevy ECS world.
+    /// requiring a full Bevy ECS world. Returns `true` if an `AutoSaveEvent`
+    /// would have been fired.
     fn check_tower_victory_logic(
         tower_state: &mut TowerState,
         tower_battle_active: &mut TowerBattleActive,
-    ) {
+    ) -> bool {
         if !tower_battle_active.0 {
-            return;
+            return false;
         }
 
         let result = advance_floor(tower_state);
@@ -591,6 +718,10 @@ mod tests {
             }
         }
 
+        // In the real system, this is where auto_save_events.send(AutoSaveEvent)
+        // fires. We return true to indicate the event would be sent.
         tower_battle_active.0 = false;
+
+        true
     }
 }

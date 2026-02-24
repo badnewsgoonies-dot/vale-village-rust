@@ -541,8 +541,11 @@ pub mod constants {
     pub const BUFF_DEBUFF_STACK_LIMIT: usize = 3;
 
     pub const DJINN_RECOVERY_TURNS: u32 = 2;
+    #[allow(dead_code)]
     pub const SUMMON_DAMAGE_1: i32 = 80;
+    #[allow(dead_code)]
     pub const SUMMON_DAMAGE_2: i32 = 150;
+    #[allow(dead_code)]
     pub const SUMMON_DAMAGE_3: i32 = 300;
 
     pub const XP_CURVE: [u32; 21] = [

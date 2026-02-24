@@ -75,6 +75,10 @@ struct RecruitNpc {
     unit_id: String,
 }
 
+/// Marks the Elder NPC whose dialog changes based on story progress.
+#[derive(Component, Debug)]
+struct ElderNpc;
+
 /// Marks an NPC as an innkeeper who can heal the party for gold.
 #[derive(Component, Debug)]
 struct InnKeeper {
@@ -885,6 +889,7 @@ fn player_interact(
         &Npc,
         Option<&RecruitNpc>,
         Option<&InnKeeper>,
+        Option<&ElderNpc>,
     )>,
     mut dialog_box: Query<&mut Visibility, With<DialogBox>>,
     mut dialog_text: Query<&mut Text, With<DialogText>>,
@@ -908,15 +913,18 @@ fn player_interact(
     };
     let face = GridPosition::new(player_pos.x + fx, player_pos.y + fy);
 
-    for (npc_entity, npc_pos, npc, recruit, innkeeper) in &npc_query {
+    for (npc_entity, npc_pos, npc, recruit, innkeeper, elder) in &npc_query {
         if *npc_pos == face {
             dialog.active = true;
             dialog.speaker = npc.name.clone();
             dialog.speaker_entity = Some(npc_entity);
             dialog.current_line = 0;
 
+            // Elder NPC: dynamically choose dialog based on story flags.
+            if elder.is_some() {
+                dialog.lines = elder_dialog_lines(&party);
             // If this is an innkeeper NPC, check if the player can afford to rest.
-            if let Some(inn) = innkeeper {
+            } else if let Some(inn) = innkeeper {
                 if party.gold < inn.cost {
                     dialog.lines = vec![
                         format!("You need {} gold to rest here.", inn.cost),
@@ -958,6 +966,7 @@ fn dialog_input(
     shopkeepers: Query<&ShopKeeper>,
     recruit_npcs: Query<&RecruitNpc>,
     innkeepers: Query<&InnKeeper>,
+    elder_npcs: Query<&ElderNpc>,
     mut party: ResMut<Party>,
     mut current_shop: ResMut<CurrentShop>,
     mut next_game_state: ResMut<NextState<GameState>>,
@@ -977,6 +986,11 @@ fn dialog_input(
                 *vis = Visibility::Hidden;
             }
             if let Some(npc_entity) = dialog.speaker_entity.take() {
+                // Check for Elder NPC interaction — set story flag
+                if elder_npcs.get(npc_entity).is_ok() {
+                    party.set_flag(story::TALKED_TO_ELDER, true);
+                }
+
                 // Check for shopkeeper interaction
                 if let Ok(shopkeeper) = shopkeepers.get(npc_entity) {
                     current_shop.items = shopkeeper.items.clone();
@@ -1075,5 +1089,94 @@ fn handle_battle_end(
         }
         // Defeat: transition handled by BattlePhase::Defeat screen in battle_ui.
         // We still need to consume the event so it doesn't fire repeatedly.
+    }
+}
+
+// ── Elder NPC dialog logic (pure function) ───────────────────────────
+
+/// Returns the dialog lines the Elder should say based on the party's story flags.
+///
+/// Progression tiers (checked from most advanced to least):
+/// 1. Tower completed  → congratulations
+/// 2. Tower entered    → encouragement to push deeper
+/// 3. All 3 recruited  → direct the party to the Tower
+/// 4. Default          → suggest recruiting allies
+fn elder_dialog_lines(party: &Party) -> Vec<String> {
+    if party.has_flag(story::TOWER_COMPLETED) {
+        vec!["You have conquered the Tower! You are a true hero of Vale Village.".into()]
+    } else if party.has_flag(story::TOWER_ENTERED) {
+        vec!["Push deeper into the tower. Floor 5 is a turning point.".into()]
+    } else if party.has_flag(story::RECRUITED_KARIS)
+        && party.has_flag(story::RECRUITED_TYRELL)
+        && party.has_flag(story::RECRUITED_AMITI)
+    {
+        vec!["Your party is strong! The Tower of Trials awaits to the east.".into()]
+    } else {
+        vec![
+            "Welcome, young adept. Seek allies for your journey. Talk to the warriors nearby."
+                .into(),
+        ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn elder_dialog_default_no_flags() {
+        let party = Party::default();
+        let lines = elder_dialog_lines(&party);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("Seek allies"));
+    }
+
+    #[test]
+    fn elder_dialog_after_partial_recruit() {
+        let mut party = Party::default();
+        party.set_flag(story::RECRUITED_KARIS, true);
+        party.set_flag(story::RECRUITED_TYRELL, true);
+        // Amiti not yet recruited — should still show default
+        let lines = elder_dialog_lines(&party);
+        assert!(lines[0].contains("Seek allies"));
+    }
+
+    #[test]
+    fn elder_dialog_all_recruited() {
+        let mut party = Party::default();
+        party.set_flag(story::RECRUITED_KARIS, true);
+        party.set_flag(story::RECRUITED_TYRELL, true);
+        party.set_flag(story::RECRUITED_AMITI, true);
+        let lines = elder_dialog_lines(&party);
+        assert!(lines[0].contains("Tower of Trials"));
+    }
+
+    #[test]
+    fn elder_dialog_tower_entered() {
+        let mut party = Party::default();
+        party.set_flag(story::RECRUITED_KARIS, true);
+        party.set_flag(story::RECRUITED_TYRELL, true);
+        party.set_flag(story::RECRUITED_AMITI, true);
+        party.set_flag(story::TOWER_ENTERED, true);
+        let lines = elder_dialog_lines(&party);
+        assert!(lines[0].contains("Floor 5"));
+    }
+
+    #[test]
+    fn elder_dialog_tower_completed() {
+        let mut party = Party::default();
+        party.set_flag(story::TOWER_COMPLETED, true);
+        let lines = elder_dialog_lines(&party);
+        assert!(lines[0].contains("conquered the Tower"));
+    }
+
+    #[test]
+    fn elder_dialog_tower_completed_overrides_entered() {
+        let mut party = Party::default();
+        party.set_flag(story::TOWER_ENTERED, true);
+        party.set_flag(story::TOWER_COMPLETED, true);
+        let lines = elder_dialog_lines(&party);
+        // Completed takes priority over entered
+        assert!(lines[0].contains("conquered the Tower"));
     }
 }

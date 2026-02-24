@@ -597,6 +597,7 @@ pub fn resolution_system(
     mut damage_events: EventWriter<DamageEvent>,
     mut heal_events: EventWriter<HealEvent>,
     mut ko_events: EventWriter<UnitKoEvent>,
+    mut status_events: EventWriter<StatusAppliedEvent>,
     mut djinn_state: ResMut<DjinnBattleRes>,
     game_data: Res<GameData>,
     mut party: ResMut<Party>,
@@ -725,29 +726,139 @@ pub fn resolution_system(
             );
         }
         BattleAction::Summon { djinn_ids } => {
-            if let Ok(summon_damage) =
-                djinn::summon_djinn(&djinn_ids, battle_state.turn_number, &mut djinn_state)
-            {
-                let enemy_ids: Vec<u32> = units
-                    .iter()
-                    .filter(|u| u.side == UnitSide::Enemy && u.is_alive())
-                    .map(|u| u.id)
-                    .collect();
-                for eid in enemy_ids {
-                    if let Some(mut target) = units.iter_mut().find(|u| u.id == eid) {
-                        let result = damage::apply_damage_with_shields(&mut target, summon_damage);
-                        damage_events.send(DamageEvent {
-                            attacker_id: actor_id,
-                            target_id: eid,
-                            damage: result.actual_damage,
-                            element: None,
-                            was_blocked: result.was_blocked,
+            // Status chance for summon effects (per-enemy roll).
+            const SUMMON_STATUS_CHANCE: f32 = 0.75;
+
+            if let Ok(summon_result) = djinn::summon_djinn_enhanced(
+                &djinn_ids,
+                battle_state.turn_number,
+                &mut djinn_state,
+                &game_data.djinn,
+            ) {
+                // Apply damage to all alive enemies
+                if summon_result.total_damage > 0 {
+                    let enemy_ids: Vec<u32> = units
+                        .iter()
+                        .filter(|u| u.side == UnitSide::Enemy && u.is_alive())
+                        .map(|u| u.id)
+                        .collect();
+                    for eid in enemy_ids {
+                        if let Some(mut target) = units.iter_mut().find(|u| u.id == eid) {
+                            let result = damage::apply_damage_with_shields(
+                                &mut target,
+                                summon_result.total_damage,
+                            );
+                            damage_events.send(DamageEvent {
+                                attacker_id: actor_id,
+                                target_id: eid,
+                                damage: result.actual_damage,
+                                element: None,
+                                was_blocked: result.was_blocked,
+                            });
+                            if target.is_ko() {
+                                ko_events.send(UnitKoEvent {
+                                    unit_id: target.id,
+                                    unit_name: target.name.clone(),
+                                    side: target.side,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // Apply healing to all alive party members
+                if summon_result.total_healing > 0 {
+                    let ally_ids: Vec<u32> = units
+                        .iter()
+                        .filter(|u| u.side == UnitSide::Player && u.is_alive())
+                        .map(|u| u.id)
+                        .collect();
+                    for aid in ally_ids {
+                        if let Some(mut ally) = units.iter_mut().find(|u| u.id == aid) {
+                            let old_hp = ally.hp;
+                            damage::apply_healing(&mut ally, summon_result.total_healing, false);
+                            let healed = ally.hp - old_hp;
+                            heal_events.send(HealEvent {
+                                source_id: actor_id,
+                                target_id: aid,
+                                amount: healed,
+                                revived: false,
+                            });
+                        }
+                    }
+                }
+
+                // Apply stat buffs to the caster
+                for (stat_name, amount) in &summon_result.stat_buffs {
+                    let stat = match stat_name.as_str() {
+                        "atk" => StatKind::Atk,
+                        "def" => StatKind::Def,
+                        "mag" => StatKind::Mag,
+                        "spd" => StatKind::Spd,
+                        _ => continue,
+                    };
+                    let buff_effect = if *amount > 0 {
+                        BattleStatusEffect::Buff {
+                            stat,
+                            modifier: *amount,
+                            duration: 3,
+                        }
+                    } else {
+                        BattleStatusEffect::Debuff {
+                            stat,
+                            modifier: *amount,
+                            duration: 3,
+                        }
+                    };
+                    if let Some(mut actor) = units.iter_mut().find(|u| u.id == actor_id) {
+                        let applied = status::apply_status_to_unit(&mut actor, buff_effect.clone());
+                        status_events.send(StatusAppliedEvent {
+                            target_id: actor_id,
+                            status: buff_effect,
+                            was_immune: !applied,
                         });
-                        if target.is_ko() {
-                            ko_events.send(UnitKoEvent {
-                                unit_id: target.id,
-                                unit_name: target.name.clone(),
-                                side: target.side,
+                    }
+                }
+
+                // Apply status effects to enemies with a chance roll
+                for (effect_type, duration) in &summon_result.status_inflicts {
+                    let battle_status = match effect_type.as_str() {
+                        "poison" => BattleStatusEffect::Poison {
+                            duration: *duration as i32,
+                        },
+                        "burn" => BattleStatusEffect::Burn {
+                            duration: *duration as i32,
+                        },
+                        "freeze" => BattleStatusEffect::Freeze {
+                            duration: *duration as i32,
+                        },
+                        "paralyze" => BattleStatusEffect::Paralyze {
+                            duration: *duration as i32,
+                        },
+                        "stun" => BattleStatusEffect::Stun {
+                            duration: *duration as i32,
+                        },
+                        "blind" => BattleStatusEffect::Blind {
+                            duration: *duration as i32,
+                        },
+                        _ => continue,
+                    };
+                    let enemy_ids: Vec<u32> = units
+                        .iter()
+                        .filter(|u| u.side == UnitSide::Enemy && u.is_alive())
+                        .map(|u| u.id)
+                        .collect();
+                    for eid in enemy_ids {
+                        // Roll against status chance for each enemy
+                        if rng.0.r#gen::<f32>() < SUMMON_STATUS_CHANCE
+                            && let Some(mut target) = units.iter_mut().find(|u| u.id == eid)
+                        {
+                            let applied =
+                                status::apply_status_to_unit(&mut target, battle_status.clone());
+                            status_events.send(StatusAppliedEvent {
+                                target_id: eid,
+                                status: battle_status.clone(),
+                                was_immune: !applied,
                             });
                         }
                     }
@@ -1575,5 +1686,450 @@ mod tests {
             .expect("adept should have persisted HP/PP");
         assert_eq!(*hp, 80);
         assert_eq!(*pp, 20);
+    }
+
+    // -----------------------------------------------------------------------
+    // Enhanced summon resolution tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_enhanced_summon_damage_uses_real_registry() {
+        // Verify that summon_djinn_enhanced returns the correct aggregated
+        // damage from the real djinn registry for flint (80) + forge (120).
+        let game_data = test_game_data();
+        let mut djinn_state = DjinnBattleRes {
+            trackers: vec![
+                DjinnTracker {
+                    djinn_id: "flint".into(),
+                    state: DjinnBattleState::Standby,
+                    owner_unit_id: 1,
+                    last_activated_turn: 0,
+                    recovery_turns_remaining: 0,
+                },
+                DjinnTracker {
+                    djinn_id: "forge".into(),
+                    state: DjinnBattleState::Standby,
+                    owner_unit_id: 1,
+                    last_activated_turn: 0,
+                    recovery_turns_remaining: 0,
+                },
+            ],
+        };
+
+        let result = djinn::summon_djinn_enhanced(
+            &["flint".into(), "forge".into()],
+            3,
+            &mut djinn_state,
+            &game_data.djinn,
+        )
+        .expect("enhanced summon should succeed");
+
+        // flint(80) + forge(120) = 200 total damage
+        assert_eq!(result.total_damage, 200);
+        assert_eq!(result.total_healing, 0);
+        assert!(result.stat_buffs.is_empty());
+        assert!(result.status_inflicts.is_empty());
+
+        // Both djinn should now be in Recovery
+        assert!(
+            djinn_state
+                .trackers
+                .iter()
+                .all(|t| t.state == DjinnBattleState::Recovery)
+        );
+    }
+
+    #[test]
+    fn test_enhanced_summon_heal_and_status_from_registry() {
+        // Summon fizz (heal:100) and fever (status:burn/3) together.
+        // Verify the SummonResult aggregates both healing and status effects.
+        let game_data = test_game_data();
+        let mut djinn_state = DjinnBattleRes {
+            trackers: vec![
+                DjinnTracker {
+                    djinn_id: "fizz".into(),
+                    state: DjinnBattleState::Standby,
+                    owner_unit_id: 1,
+                    last_activated_turn: 0,
+                    recovery_turns_remaining: 0,
+                },
+                DjinnTracker {
+                    djinn_id: "fever".into(),
+                    state: DjinnBattleState::Standby,
+                    owner_unit_id: 1,
+                    last_activated_turn: 0,
+                    recovery_turns_remaining: 0,
+                },
+            ],
+        };
+
+        let result = djinn::summon_djinn_enhanced(
+            &["fizz".into(), "fever".into()],
+            5,
+            &mut djinn_state,
+            &game_data.djinn,
+        )
+        .expect("enhanced summon should succeed");
+
+        assert_eq!(result.total_damage, 0);
+        assert_eq!(result.total_healing, 100);
+        assert_eq!(result.status_inflicts.len(), 1);
+        assert_eq!(result.status_inflicts[0].0, "burn");
+        assert_eq!(result.status_inflicts[0].1, 3);
+    }
+
+    // -------------------------------------------------------------------
+    // Integration tests: turn order, status effects, AI, flee, elements
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_turn_order_respects_speed() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let mut slow = make_battle_unit(1, "Slow", 5, 100, 50, 0);
+        slow.spd = 5;
+        slow.side = UnitSide::Player;
+
+        let mut med = make_battle_unit(2, "Medium", 5, 100, 50, 0);
+        med.spd = 15;
+        med.side = UnitSide::Enemy;
+
+        let mut fast = make_battle_unit(3, "Fast", 5, 100, 50, 0);
+        fast.spd = 30;
+        fast.side = UnitSide::Player;
+
+        let units = vec![slow, med, fast];
+        let mut rng = StdRng::seed_from_u64(42);
+        let order = turn_order::calculate_turn_order(&units, &mut rng);
+
+        assert_eq!(order.len(), 3);
+        assert_eq!(order[0], 3, "fastest (spd=30) goes first");
+        assert_eq!(order[1], 2, "medium (spd=15) goes second");
+        assert_eq!(order[2], 1, "slowest (spd=5) goes last");
+    }
+
+    #[test]
+    fn test_status_effect_tick() {
+        use crate::battle::types::constants;
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let mut unit = make_battle_unit(1, "Poisoned", 5, 200, 50, 0);
+        unit.status_effects
+            .push(BattleStatusEffect::Poison { duration: 3 });
+
+        let initial_hp = unit.hp;
+        let expected_dmg = (unit.max_hp as f32 * constants::POISON_PERCENT).floor() as i32;
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let result = status::tick_status_effects(&mut unit, &mut rng);
+
+        assert_eq!(result.damage, expected_dmg);
+        assert_eq!(unit.hp, initial_hp - expected_dmg);
+        assert!(
+            !unit.status_effects.is_empty(),
+            "poison (dur 3) should remain active after one tick"
+        );
+    }
+
+    #[test]
+    fn test_ai_targets_weakest() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+        use std::collections::HashMap;
+
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let mut enemy = make_battle_unit(1, "Enemy", 5, 100, 50, 0);
+        enemy.side = UnitSide::Enemy;
+
+        let mut strong = make_battle_unit(10, "Strong", 5, 90, 50, 0);
+        strong.side = UnitSide::Player;
+        let mut mid = make_battle_unit(11, "Mid", 5, 50, 50, 0);
+        mid.side = UnitSide::Player;
+        let mut weak = make_battle_unit(12, "Weak", 5, 15, 50, 0);
+        weak.side = UnitSide::Player;
+
+        let targets = vec![strong, mid, weak];
+        let registry: HashMap<String, AbilityDef> = HashMap::new();
+
+        let action = ai::enemy_choose_action(
+            &enemy,
+            std::slice::from_ref(&enemy),
+            &targets,
+            &registry,
+            &mut rng,
+        );
+
+        match action {
+            BattleAction::Attack { target_id } => {
+                assert_eq!(target_id, 12, "should target weakest (id=12, hp=15)");
+            }
+            other => panic!("Expected Attack, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_flee_probability() {
+        use crate::battle::types::constants;
+
+        let equal = rewards::flee_chance(10.0, 10.0);
+        assert!((equal - constants::BASE_FLEE_CHANCE).abs() < 0.001);
+
+        let faster = rewards::flee_chance(20.0, 10.0);
+        let expected = constants::BASE_FLEE_CHANCE + 10.0 * constants::SPEED_FLEE_BONUS;
+        assert!((faster - expected).abs() < 0.001);
+
+        let max = rewards::flee_chance(100.0, 10.0);
+        assert!((max - 0.90).abs() < 0.001, "clamped to 0.90");
+
+        let min = rewards::flee_chance(5.0, 100.0);
+        assert!((min - 0.10).abs() < 0.001, "clamped to 0.10");
+    }
+
+    #[test]
+    fn test_damage_with_element_advantage() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let mut atk_unit = make_battle_unit(1, "Venus", 5, 100, 50, 0);
+        atk_unit.element = Element::Venus;
+        atk_unit.mag = 25;
+        atk_unit.luck = 0;
+
+        let mut def_jup = make_battle_unit(2, "Jupiter", 5, 200, 50, 0);
+        def_jup.element = Element::Jupiter;
+        def_jup.def = 10;
+
+        let mut def_ven = def_jup.clone();
+        def_ven.element = Element::Venus;
+
+        let ability = AbilityDef {
+            id: "earth_strike".into(),
+            name: "Earth Strike".into(),
+            ability_type: AbilityType::Psynergy,
+            element: Some(Element::Venus),
+            mana_cost: 5,
+            base_power: 40,
+            targets: TargetKind::SingleEnemy,
+            unlock_level: 1,
+            description: String::new(),
+            buff_effect: None,
+            duration: None,
+            status_effect: None,
+            chain_damage: false,
+            ignore_defense_percent: 0.0,
+            damage_reduction_percent: 0.0,
+            shield_charges: None,
+            ai_hints: AiHints {
+                priority: 1.0,
+                target: AiTargetPref::Weakest,
+                avoid_overkill: false,
+                opener: false,
+            },
+        };
+
+        let mut r1 = StdRng::seed_from_u64(42);
+        let dmg_adv =
+            damage::calculate_psynergy_damage(&atk_unit, &def_jup, &ability, false, &mut r1);
+        let mut r2 = StdRng::seed_from_u64(42);
+        let dmg_neu =
+            damage::calculate_psynergy_damage(&atk_unit, &def_ven, &ability, false, &mut r2);
+
+        assert!(
+            dmg_adv > dmg_neu,
+            "advantage damage ({}) should exceed neutral ({})",
+            dmg_adv,
+            dmg_neu
+        );
+        let m = damage::element_modifier(Element::Venus, Element::Jupiter);
+        assert!((m - 1.25).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_damage_with_element_disadvantage() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let mut atk_unit = make_battle_unit(1, "Venus", 5, 100, 50, 0);
+        atk_unit.element = Element::Venus;
+        atk_unit.mag = 25;
+        atk_unit.luck = 0;
+
+        let mut def_mars = make_battle_unit(2, "Mars", 5, 200, 50, 0);
+        def_mars.element = Element::Mars;
+        def_mars.def = 10;
+
+        let mut def_ven = def_mars.clone();
+        def_ven.element = Element::Venus;
+
+        let ability = AbilityDef {
+            id: "earth_strike".into(),
+            name: "Earth Strike".into(),
+            ability_type: AbilityType::Psynergy,
+            element: Some(Element::Venus),
+            mana_cost: 5,
+            base_power: 40,
+            targets: TargetKind::SingleEnemy,
+            unlock_level: 1,
+            description: String::new(),
+            buff_effect: None,
+            duration: None,
+            status_effect: None,
+            chain_damage: false,
+            ignore_defense_percent: 0.0,
+            damage_reduction_percent: 0.0,
+            shield_charges: None,
+            ai_hints: AiHints {
+                priority: 1.0,
+                target: AiTargetPref::Weakest,
+                avoid_overkill: false,
+                opener: false,
+            },
+        };
+
+        let mut r1 = StdRng::seed_from_u64(42);
+        let dmg_dis =
+            damage::calculate_psynergy_damage(&atk_unit, &def_mars, &ability, false, &mut r1);
+        let mut r2 = StdRng::seed_from_u64(42);
+        let dmg_neu =
+            damage::calculate_psynergy_damage(&atk_unit, &def_ven, &ability, false, &mut r2);
+
+        assert!(
+            dmg_dis < dmg_neu,
+            "disadvantage damage ({}) should be less than neutral ({})",
+            dmg_dis,
+            dmg_neu
+        );
+        let m = damage::element_modifier(Element::Venus, Element::Mars);
+        assert!((m - 0.75).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_enhanced_summon_heals_all_party_members() {
+        // Simulate the resolution system's healing path: summon fizz (heal:100),
+        // then apply healing to multiple party members who are below max HP.
+        let game_data = test_game_data();
+        let mut djinn_state = DjinnBattleRes {
+            trackers: vec![DjinnTracker {
+                djinn_id: "fizz".into(),
+                state: DjinnBattleState::Standby,
+                owner_unit_id: 1,
+                last_activated_turn: 0,
+                recovery_turns_remaining: 0,
+            }],
+        };
+
+        let result =
+            djinn::summon_djinn_enhanced(&["fizz".into()], 5, &mut djinn_state, &game_data.djinn)
+                .expect("enhanced summon should succeed");
+
+        assert_eq!(result.total_healing, 100);
+
+        // Create two party members both below max HP (simulating the all-ally heal).
+        let mut ally1 = make_battle_unit(1, "Adept", 5, 50, 20, 0);
+        ally1.max_hp = 120;
+        let mut ally2 = make_battle_unit(2, "Mage", 5, 30, 20, 0);
+        ally2.max_hp = 100;
+
+        // Apply healing the same way the resolution system does for ALL allies.
+        let old_hp1 = ally1.hp;
+        damage::apply_healing(&mut ally1, result.total_healing, false);
+        let healed1 = ally1.hp - old_hp1;
+
+        let old_hp2 = ally2.hp;
+        damage::apply_healing(&mut ally2, result.total_healing, false);
+        let healed2 = ally2.hp - old_hp2;
+
+        // Both allies should have been healed.
+        assert!(healed1 > 0, "ally1 should have received healing");
+        assert!(healed2 > 0, "ally2 should have received healing");
+        // ally1: min(50+100, 120) = 120, healed 70
+        assert_eq!(ally1.hp, 120);
+        assert_eq!(healed1, 70);
+        // ally2: min(30+100, 100) = 100, healed 70
+        assert_eq!(ally2.hp, 100);
+        assert_eq!(healed2, 70);
+    }
+
+    #[test]
+    fn test_enhanced_summon_status_chance_roll() {
+        // Simulate the resolution system's status application with a chance roll.
+        // Summon fever (status:burn/3), then for each enemy roll against the chance.
+        // Using a seeded RNG, verify that some enemies get the status and some don't.
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let game_data = test_game_data();
+        let mut djinn_state = DjinnBattleRes {
+            trackers: vec![DjinnTracker {
+                djinn_id: "fever".into(),
+                state: DjinnBattleState::Standby,
+                owner_unit_id: 1,
+                last_activated_turn: 0,
+                recovery_turns_remaining: 0,
+            }],
+        };
+
+        let result =
+            djinn::summon_djinn_enhanced(&["fever".into()], 5, &mut djinn_state, &game_data.djinn)
+                .expect("enhanced summon should succeed");
+
+        assert_eq!(result.status_inflicts.len(), 1);
+        assert_eq!(result.status_inflicts[0].0, "burn");
+        assert_eq!(result.status_inflicts[0].1, 3);
+
+        // Simulate applying status to 10 enemies with a 75% chance each,
+        // using the same seeded RNG approach the resolution system uses.
+        const SUMMON_STATUS_CHANCE: f32 = 0.75;
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut enemies: Vec<BattleUnit> = (0..10)
+            .map(|i| {
+                let mut unit = make_battle_unit(100 + i, "Goblin", 3, 50, 10, 0);
+                unit.side = UnitSide::Enemy;
+                unit
+            })
+            .collect();
+
+        let mut applied_count = 0;
+        let mut skipped_count = 0;
+        for enemy in enemies.iter_mut() {
+            if rng.r#gen::<f32>() < SUMMON_STATUS_CHANCE {
+                let battle_status = BattleStatusEffect::Burn { duration: 3 };
+                let applied = status::apply_status_to_unit(enemy, battle_status);
+                if applied {
+                    applied_count += 1;
+                }
+            } else {
+                skipped_count += 1;
+            }
+        }
+
+        // With 75% chance and 10 enemies, we expect some to be hit and some to be skipped.
+        // With seed 42, the exact distribution is deterministic.
+        assert!(
+            applied_count > 0,
+            "at least some enemies should have status applied"
+        );
+        assert!(
+            skipped_count > 0,
+            "at least some enemies should have been skipped by the chance roll"
+        );
+        assert_eq!(applied_count + skipped_count, 10);
+
+        // Verify that enemies who got the status actually have it.
+        let enemies_with_burn = enemies
+            .iter()
+            .filter(|e| {
+                e.status_effects
+                    .iter()
+                    .any(|s| matches!(s, BattleStatusEffect::Burn { .. }))
+            })
+            .count();
+        assert_eq!(
+            enemies_with_burn, applied_count,
+            "burn count on units should match applied count"
+        );
     }
 }

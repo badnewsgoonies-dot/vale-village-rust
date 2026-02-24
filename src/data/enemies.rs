@@ -79,7 +79,7 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             def: 7,
             mag: 3,
             spd: 11,
-            abilities: vec![ea("strike"), ea("heavy-strike")],
+            abilities: vec![ea("strike"), ea("heavy-strike"), ea("earth-spike-damage")],
             base_xp: 16,
             base_gold: 8,
             tier: 1,
@@ -130,7 +130,7 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             def: 15,
             mag: 3,
             spd: 6,
-            abilities: vec![ea("strike"), ea("guard-break")],
+            abilities: vec![ea("strike"), ea("guard-break"), ea("earth-spike-damage")],
             base_xp: 22,
             base_gold: 12,
             tier: 1,
@@ -269,7 +269,7 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             def: 8,
             mag: 12,
             spd: 11,
-            abilities: vec![ea("ice-shard"), ea("heal")],
+            abilities: vec![ea("strike"), ea("ice-shard"), ea("heal")],
             base_xp: 22,
             base_gold: 12,
             tier: 1,
@@ -303,7 +303,12 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             def: 20,
             mag: 5,
             spd: 6,
-            abilities: vec![ea("strike"), ea("guard-break"), ea("boost-def")],
+            abilities: vec![
+                ea("strike"),
+                ea("guard-break"),
+                ea("earth-spike-damage"),
+                ea("boost-def"),
+            ],
             base_xp: 30,
             base_gold: 16,
             tier: 1,
@@ -320,7 +325,7 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             def: 8,
             mag: 11,
             spd: 10,
-            abilities: vec![ea("fireball"), ea("heal")],
+            abilities: vec![ea("strike"), ea("fireball"), ea("heal")],
             base_xp: 26,
             base_gold: 14,
             tier: 1,
@@ -337,7 +342,12 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             def: 14,
             mag: 16,
             spd: 9,
-            abilities: vec![ea("quake"), ea("boost-def"), ea("heal")],
+            abilities: vec![
+                ea("quake"),
+                ea("earth-spike-damage"),
+                ea("boost-def"),
+                ea("heal"),
+            ],
             base_xp: 45,
             base_gold: 22,
             tier: 1,
@@ -354,7 +364,12 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             def: 13,
             mag: 18,
             spd: 10,
-            abilities: vec![ea("ice-shard"), ea("boost-def"), ea("heal")],
+            abilities: vec![
+                ea("ice-shard"),
+                ea("freeze-blast"),
+                ea("boost-def"),
+                ea("heal"),
+            ],
             base_xp: 50,
             base_gold: 24,
             tier: 1,
@@ -371,7 +386,12 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             def: 12,
             mag: 20,
             spd: 11,
-            abilities: vec![ea("freeze-blast"), ea("heal"), ea("party-heal")],
+            abilities: vec![
+                ea("freeze-blast"),
+                ea("ice-shard"),
+                ea("heal"),
+                ea("party-heal"),
+            ],
             base_xp: 55,
             base_gold: 26,
             tier: 1,
@@ -389,7 +409,7 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             def: 8,
             mag: 5,
             spd: 8,
-            abilities: vec![ea("strike"), ea("guard-break")],
+            abilities: vec![ea("strike"), ea("guard-break"), ea("earth-spike-damage")],
             base_xp: 15,
             base_gold: 10,
             tier: 1,
@@ -509,7 +529,7 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             def: 9,
             mag: 13,
             spd: 14,
-            abilities: vec![ea("strike"), ea("gust"), ea("blind")],
+            abilities: vec![ea("strike"), ea("gust"), ea("paralyze-shock")],
             base_xp: 28,
             base_gold: 16,
             tier: 1,
@@ -704,7 +724,13 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             def: 16,
             mag: 14,
             spd: 9,
-            abilities: vec![ea("quake"), ea("boost-atk"), ea("boost-def"), ea("heal")],
+            abilities: vec![
+                ea("strike"),
+                ea("quake"),
+                ea("boost-atk"),
+                ea("boost-def"),
+                ea("heal"),
+            ],
             base_xp: 58,
             base_gold: 28,
             tier: 2,
@@ -721,7 +747,13 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             def: 14,
             mag: 20,
             spd: 13,
-            abilities: vec![ea("fireball"), ea("boost-atk"), ea("weaken-def")],
+            abilities: vec![
+                ea("strike"),
+                ea("fireball"),
+                ea("burn-touch"),
+                ea("boost-atk"),
+                ea("weaken-def"),
+            ],
             base_xp: 70,
             base_gold: 35,
             tier: 2,
@@ -743,6 +775,7 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
                 ea("strike"),
                 ea("heavy-strike"),
                 ea("fireball"),
+                ea("burn-touch"),
                 ea("boost-atk"),
             ],
             base_xp: 60,
@@ -766,6 +799,7 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
                 ea("guard-break"),
                 ea("quake"),
                 ea("boost-def"),
+                ea("heavy-strike"),
             ],
             base_xp: 80,
             base_gold: 50,
@@ -814,6 +848,7 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
                 ea("freeze-blast"),
                 ea("heal"),
                 ea("party-heal"),
+                ea("boost-def"),
             ],
             base_xp: 140,
             base_gold: 90,
@@ -863,6 +898,7 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
                 ea("quake"),
                 ea("guard-break"),
                 ea("boost-def"),
+                ea("gaia"),
             ],
             base_xp: 200,
             base_gold: 120,
@@ -884,6 +920,7 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
                 ea("fireball"),
                 ea("burn-touch"),
                 ea("flare"),
+                ea("inferno"),
                 ea("boost-atk"),
                 ea("weaken-def"),
             ],
@@ -910,6 +947,7 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![
                 ea("ice-shard"),
                 ea("freeze-blast"),
+                ea("tundra"),
                 ea("heal"),
                 ea("party-heal"),
                 ea("boost-def"),
@@ -937,6 +975,7 @@ pub fn build_enemy_registry() -> HashMap<String, EnemyDefinition> {
             abilities: vec![
                 ea("gust"),
                 ea("chain-lightning"),
+                ea("tornado"),
                 ea("paralyze-shock"),
                 ea("boost-atk"),
                 ea("heal"),
@@ -971,6 +1010,7 @@ pub fn get_enemies_by_tier(tier: u8) -> Vec<EnemyDefinition> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data::abilities::build_ability_registry;
 
     #[test]
     fn test_all_enemies_have_valid_tier() {
@@ -1036,6 +1076,34 @@ mod tests {
                     id,
                     chance,
                     item_id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_all_enemies_have_abilities() {
+        let registry = build_enemy_registry();
+        for (id, enemy) in &registry {
+            assert!(
+                !enemy.abilities.is_empty(),
+                "Enemy '{}' has no abilities assigned",
+                id
+            );
+        }
+    }
+
+    #[test]
+    fn test_enemy_abilities_exist_in_registry() {
+        let enemy_registry = build_enemy_registry();
+        let ability_registry = build_ability_registry();
+        for (enemy_id, enemy) in &enemy_registry {
+            for ea in &enemy.abilities {
+                assert!(
+                    ability_registry.contains_key(&ea.ability_id),
+                    "Enemy '{}' references ability '{}' which does not exist in the ability registry",
+                    enemy_id,
+                    ea.ability_id
                 );
             }
         }

@@ -377,6 +377,16 @@ impl SaveSystem {
         }
         Ok(())
     }
+
+    /// Auto-save to slot 0 (the dedicated auto-save slot).
+    /// Logs a warning on failure instead of panicking.
+    #[allow(dead_code)]
+    pub fn auto_save(&self, data: &SaveData) {
+        const AUTO_SAVE_SLOT: usize = 0;
+        if let Err(err) = self.save(AUTO_SAVE_SLOT, data) {
+            warn!("Auto-save failed: {}", err);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -230,6 +230,7 @@ pub fn unleash_djinn(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn summon_djinn(
     djinn_ids: &[String],
     current_turn: u32,
@@ -917,5 +918,730 @@ mod tests {
         let result = summon_djinn_enhanced(&["unknown-djinn".into()], 5, &mut state, &registry);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("no definition"));
+    }
+
+    // -----------------------------------------------------------------------
+    // unleash_djinn — additional tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_unleash_djinn_transitions_set_to_standby() {
+        let mut state = make_djinn_state(&[("forge", 1, DjinnBattleState::Set)]);
+        let result = unleash_djinn("forge", 7, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(state.trackers[0].state, DjinnBattleState::Standby);
+        assert_eq!(state.trackers[0].last_activated_turn, 7);
+    }
+
+    #[test]
+    fn test_unleash_djinn_error_when_standby() {
+        let mut state = make_djinn_state(&[("flint", 1, DjinnBattleState::Standby)]);
+        let result = unleash_djinn("flint", 1, &mut state);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("must be Set"), "Error was: {err}");
+        // State should remain unchanged.
+        assert_eq!(state.trackers[0].state, DjinnBattleState::Standby);
+    }
+
+    #[test]
+    fn test_unleash_djinn_error_when_recovery() {
+        let mut state = DjinnBattleRes {
+            trackers: vec![DjinnTracker {
+                djinn_id: "flint".into(),
+                state: DjinnBattleState::Recovery,
+                owner_unit_id: 1,
+                last_activated_turn: 2,
+                recovery_turns_remaining: 1,
+            }],
+        };
+        let result = unleash_djinn("flint", 5, &mut state);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("must be Set"), "Error was: {err}");
+        assert_eq!(state.trackers[0].state, DjinnBattleState::Recovery);
+    }
+
+    #[test]
+    fn test_unleash_djinn_error_unknown_id() {
+        let mut state = make_djinn_state(&[("flint", 1, DjinnBattleState::Set)]);
+        let result = unleash_djinn("nonexistent", 1, &mut state);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("not found"), "Error was: {err}");
+    }
+
+    #[test]
+    fn test_unleash_djinn_empty_state() {
+        let mut state = make_djinn_state(&[]);
+        let result = unleash_djinn("flint", 1, &mut state);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
+    }
+
+    #[test]
+    fn test_unleash_only_affects_target_djinn() {
+        let mut state = make_djinn_state(&[
+            ("flint", 1, DjinnBattleState::Set),
+            ("forge", 1, DjinnBattleState::Set),
+        ]);
+        unleash_djinn("flint", 3, &mut state).unwrap();
+        assert_eq!(state.trackers[0].state, DjinnBattleState::Standby);
+        assert_eq!(state.trackers[1].state, DjinnBattleState::Set);
+    }
+
+    // -----------------------------------------------------------------------
+    // summon_djinn — additional tests (1, 2, 3 djinn + error cases)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_summon_single_djinn() {
+        let mut state = make_djinn_state(&[("flint", 1, DjinnBattleState::Standby)]);
+        let result = summon_djinn(&["flint".into()], 10, &mut state);
+        assert_eq!(result, Ok(constants::SUMMON_DAMAGE_1));
+        assert_eq!(state.trackers[0].state, DjinnBattleState::Recovery);
+        assert_eq!(state.trackers[0].last_activated_turn, 10);
+        assert_eq!(
+            state.trackers[0].recovery_turns_remaining,
+            constants::DJINN_RECOVERY_TURNS
+        );
+    }
+
+    #[test]
+    fn test_summon_two_djinn() {
+        let mut state = make_djinn_state(&[
+            ("flint", 1, DjinnBattleState::Standby),
+            ("forge", 1, DjinnBattleState::Standby),
+        ]);
+        let result = summon_djinn(&["flint".into(), "forge".into()], 5, &mut state);
+        assert_eq!(result, Ok(constants::SUMMON_DAMAGE_2));
+        assert!(
+            state
+                .trackers
+                .iter()
+                .all(|t| t.state == DjinnBattleState::Recovery)
+        );
+    }
+
+    #[test]
+    fn test_summon_three_djinn() {
+        let mut state = make_djinn_state(&[
+            ("flint", 1, DjinnBattleState::Standby),
+            ("forge", 1, DjinnBattleState::Standby),
+            ("granite", 1, DjinnBattleState::Standby),
+        ]);
+        let result = summon_djinn(
+            &["flint".into(), "forge".into(), "granite".into()],
+            5,
+            &mut state,
+        );
+        assert_eq!(result, Ok(constants::SUMMON_DAMAGE_3));
+        assert!(
+            state
+                .trackers
+                .iter()
+                .all(|t| t.state == DjinnBattleState::Recovery)
+        );
+    }
+
+    #[test]
+    fn test_summon_rejects_zero_djinn() {
+        let mut state = make_djinn_state(&[]);
+        let result = summon_djinn(&[], 5, &mut state);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("1-3 Djinn"));
+    }
+
+    #[test]
+    fn test_summon_rejects_more_than_three_djinn() {
+        let mut state = make_djinn_state(&[
+            ("a", 1, DjinnBattleState::Standby),
+            ("b", 1, DjinnBattleState::Standby),
+            ("c", 1, DjinnBattleState::Standby),
+            ("d", 1, DjinnBattleState::Standby),
+        ]);
+        let result = summon_djinn(
+            &["a".into(), "b".into(), "c".into(), "d".into()],
+            5,
+            &mut state,
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("1-3 Djinn"));
+    }
+
+    #[test]
+    fn test_summon_rejects_djinn_in_set_state() {
+        let mut state = make_djinn_state(&[("flint", 1, DjinnBattleState::Set)]);
+        let result = summon_djinn(&["flint".into()], 5, &mut state);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("must be Standby"));
+    }
+
+    #[test]
+    fn test_summon_rejects_djinn_in_recovery_state() {
+        let mut state = DjinnBattleRes {
+            trackers: vec![DjinnTracker {
+                djinn_id: "flint".into(),
+                state: DjinnBattleState::Recovery,
+                owner_unit_id: 1,
+                last_activated_turn: 2,
+                recovery_turns_remaining: 1,
+            }],
+        };
+        let result = summon_djinn(&["flint".into()], 5, &mut state);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("must be Standby"));
+    }
+
+    #[test]
+    fn test_summon_rejects_unknown_djinn() {
+        let mut state = make_djinn_state(&[]);
+        let result = summon_djinn(&["nonexistent".into()], 5, &mut state);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
+    }
+
+    // -----------------------------------------------------------------------
+    // summon_djinn_enhanced — additional effect tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_summon_enhanced_rejects_more_than_three() {
+        let mut state = make_djinn_state(&[
+            ("flint", 1, DjinnBattleState::Standby),
+            ("forge", 1, DjinnBattleState::Standby),
+            ("granite", 1, DjinnBattleState::Standby),
+            ("fever", 1, DjinnBattleState::Standby),
+        ]);
+        let registry = make_test_registry();
+        let result = summon_djinn_enhanced(
+            &[
+                "flint".into(),
+                "forge".into(),
+                "granite".into(),
+                "fever".into(),
+            ],
+            5,
+            &mut state,
+            &registry,
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("1-3 Djinn"));
+    }
+
+    #[test]
+    fn test_summon_enhanced_buff_all_stats() {
+        // Build a registry with a djinn that buffs all stats.
+        let mut registry = HashMap::new();
+        registry.insert(
+            "all-buff".into(),
+            DjinnDefinition {
+                id: "all-buff".into(),
+                name: "AllBuff".into(),
+                element: Element::Venus,
+                tier: DjinnTier::Tier1,
+                set_bonus: StatModifier::default(),
+                summon_effect: SummonEffect {
+                    kind: SummonEffectKind::Buff {
+                        stat_bonus: StatModifier {
+                            atk: 5,
+                            def: 3,
+                            mag: 4,
+                            spd: 2,
+                            hp: 20,
+                            pp: 10,
+                        },
+                    },
+                    description: "Buffs everything".into(),
+                },
+                granted_ability_ids: vec![],
+                recovery_turns: 2,
+                description: "Test djinn".into(),
+            },
+        );
+        let mut state = make_djinn_state(&[("all-buff", 1, DjinnBattleState::Standby)]);
+        let result = summon_djinn_enhanced(&["all-buff".into()], 1, &mut state, &registry).unwrap();
+        assert_eq!(result.stat_buffs.len(), 6);
+        assert!(result.stat_buffs.contains(&("atk".into(), 5)));
+        assert!(result.stat_buffs.contains(&("def".into(), 3)));
+        assert!(result.stat_buffs.contains(&("mag".into(), 4)));
+        assert!(result.stat_buffs.contains(&("spd".into(), 2)));
+        assert!(result.stat_buffs.contains(&("hp".into(), 20)));
+        assert!(result.stat_buffs.contains(&("pp".into(), 10)));
+    }
+
+    #[test]
+    fn test_summon_enhanced_sets_last_activated_turn() {
+        let mut state = make_djinn_state(&[("flint", 1, DjinnBattleState::Standby)]);
+        let registry = make_test_registry();
+        summon_djinn_enhanced(&["flint".into()], 42, &mut state, &registry).unwrap();
+        assert_eq!(state.trackers[0].last_activated_turn, 42);
+    }
+
+    #[test]
+    fn test_summon_enhanced_rejects_recovery_state() {
+        let mut state = DjinnBattleRes {
+            trackers: vec![DjinnTracker {
+                djinn_id: "flint".into(),
+                state: DjinnBattleState::Recovery,
+                owner_unit_id: 1,
+                last_activated_turn: 2,
+                recovery_turns_remaining: 1,
+            }],
+        };
+        let registry = make_test_registry();
+        let result = summon_djinn_enhanced(&["flint".into()], 5, &mut state, &registry);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("must be Standby"));
+    }
+
+    // -----------------------------------------------------------------------
+    // get_standby_djinn — filtering by unit
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_get_standby_djinn_filters_by_unit() {
+        let state = make_djinn_state(&[
+            ("flint", 1, DjinnBattleState::Standby),
+            ("forge", 2, DjinnBattleState::Standby),
+            ("granite", 1, DjinnBattleState::Standby),
+        ]);
+        let result = get_standby_djinn(1, &state);
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&"flint".to_string()));
+        assert!(result.contains(&"granite".to_string()));
+        assert!(!result.contains(&"forge".to_string()));
+    }
+
+    #[test]
+    fn test_get_standby_djinn_excludes_set_and_recovery() {
+        let state = make_djinn_state(&[
+            ("flint", 1, DjinnBattleState::Set),
+            ("forge", 1, DjinnBattleState::Standby),
+            ("granite", 1, DjinnBattleState::Recovery),
+        ]);
+        let result = get_standby_djinn(1, &state);
+        assert_eq!(result, vec!["forge"]);
+    }
+
+    #[test]
+    fn test_get_standby_djinn_empty_when_none_standby() {
+        let state = make_djinn_state(&[
+            ("flint", 1, DjinnBattleState::Set),
+            ("forge", 1, DjinnBattleState::Recovery),
+        ]);
+        let result = get_standby_djinn(1, &state);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_standby_djinn_empty_state() {
+        let state = make_djinn_state(&[]);
+        let result = get_standby_djinn(1, &state);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_standby_djinn_wrong_unit_returns_empty() {
+        let state = make_djinn_state(&[("flint", 1, DjinnBattleState::Standby)]);
+        let result = get_standby_djinn(999, &state);
+        assert!(result.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // get_set_djinn tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_get_set_djinn_filters_by_unit() {
+        let state = make_djinn_state(&[
+            ("flint", 1, DjinnBattleState::Set),
+            ("forge", 2, DjinnBattleState::Set),
+            ("granite", 1, DjinnBattleState::Set),
+        ]);
+        let result = get_set_djinn(1, &state);
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&"flint".to_string()));
+        assert!(result.contains(&"granite".to_string()));
+    }
+
+    #[test]
+    fn test_get_set_djinn_excludes_standby_and_recovery() {
+        let state = make_djinn_state(&[
+            ("flint", 1, DjinnBattleState::Set),
+            ("forge", 1, DjinnBattleState::Standby),
+            ("granite", 1, DjinnBattleState::Recovery),
+        ]);
+        let result = get_set_djinn(1, &state);
+        assert_eq!(result, vec!["flint"]);
+    }
+
+    #[test]
+    fn test_get_set_djinn_empty_state() {
+        let state = make_djinn_state(&[]);
+        let result = get_set_djinn(1, &state);
+        assert!(result.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // can_unleash tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_can_unleash_true_when_set() {
+        let state = make_djinn_state(&[("flint", 1, DjinnBattleState::Set)]);
+        assert!(can_unleash("flint", &state));
+    }
+
+    #[test]
+    fn test_can_unleash_false_when_standby() {
+        let state = make_djinn_state(&[("flint", 1, DjinnBattleState::Standby)]);
+        assert!(!can_unleash("flint", &state));
+    }
+
+    #[test]
+    fn test_can_unleash_false_when_recovery() {
+        let state = make_djinn_state(&[("flint", 1, DjinnBattleState::Recovery)]);
+        assert!(!can_unleash("flint", &state));
+    }
+
+    #[test]
+    fn test_can_unleash_false_unknown_id() {
+        let state = make_djinn_state(&[("flint", 1, DjinnBattleState::Set)]);
+        assert!(!can_unleash("nonexistent", &state));
+    }
+
+    #[test]
+    fn test_can_unleash_empty_state() {
+        let state = make_djinn_state(&[]);
+        assert!(!can_unleash("flint", &state));
+    }
+
+    // -----------------------------------------------------------------------
+    // tick_djinn_recovery — additional tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_recovery_tick_single_turn_remaining() {
+        let mut state = DjinnBattleRes {
+            trackers: vec![DjinnTracker {
+                djinn_id: "flint".into(),
+                state: DjinnBattleState::Recovery,
+                owner_unit_id: 1,
+                last_activated_turn: 3,
+                recovery_turns_remaining: 1,
+            }],
+        };
+        let recovered = tick_djinn_recovery(&mut state);
+        assert_eq!(recovered, vec!["flint"]);
+        assert_eq!(state.trackers[0].state, DjinnBattleState::Set);
+        assert_eq!(state.trackers[0].recovery_turns_remaining, 0);
+    }
+
+    #[test]
+    fn test_recovery_tick_does_not_affect_set_djinn() {
+        let mut state = make_djinn_state(&[("flint", 1, DjinnBattleState::Set)]);
+        let recovered = tick_djinn_recovery(&mut state);
+        assert!(recovered.is_empty());
+        assert_eq!(state.trackers[0].state, DjinnBattleState::Set);
+    }
+
+    #[test]
+    fn test_recovery_tick_does_not_affect_standby_djinn() {
+        let mut state = make_djinn_state(&[("flint", 1, DjinnBattleState::Standby)]);
+        let recovered = tick_djinn_recovery(&mut state);
+        assert!(recovered.is_empty());
+        assert_eq!(state.trackers[0].state, DjinnBattleState::Standby);
+    }
+
+    #[test]
+    fn test_recovery_tick_multiple_djinn() {
+        let mut state = DjinnBattleRes {
+            trackers: vec![
+                DjinnTracker {
+                    djinn_id: "flint".into(),
+                    state: DjinnBattleState::Recovery,
+                    owner_unit_id: 1,
+                    last_activated_turn: 1,
+                    recovery_turns_remaining: 1,
+                },
+                DjinnTracker {
+                    djinn_id: "forge".into(),
+                    state: DjinnBattleState::Recovery,
+                    owner_unit_id: 1,
+                    last_activated_turn: 1,
+                    recovery_turns_remaining: 3,
+                },
+                DjinnTracker {
+                    djinn_id: "granite".into(),
+                    state: DjinnBattleState::Recovery,
+                    owner_unit_id: 2,
+                    last_activated_turn: 1,
+                    recovery_turns_remaining: 1,
+                },
+            ],
+        };
+        let recovered = tick_djinn_recovery(&mut state);
+        // flint and granite recover (1 turn remaining), forge still recovering.
+        assert_eq!(recovered.len(), 2);
+        assert!(recovered.contains(&"flint".to_string()));
+        assert!(recovered.contains(&"granite".to_string()));
+        assert_eq!(state.trackers[0].state, DjinnBattleState::Set); // flint
+        assert_eq!(state.trackers[1].state, DjinnBattleState::Recovery); // forge
+        assert_eq!(state.trackers[1].recovery_turns_remaining, 2); // decremented
+        assert_eq!(state.trackers[2].state, DjinnBattleState::Set); // granite
+    }
+
+    #[test]
+    fn test_recovery_tick_empty_state() {
+        let mut state = make_djinn_state(&[]);
+        let recovered = tick_djinn_recovery(&mut state);
+        assert!(recovered.is_empty());
+    }
+
+    #[test]
+    fn test_recovery_tick_zero_turns_remaining_recovers() {
+        // Edge case: recovery_turns_remaining == 0 means <= 1 is true, so it recovers.
+        let mut state = DjinnBattleRes {
+            trackers: vec![DjinnTracker {
+                djinn_id: "flint".into(),
+                state: DjinnBattleState::Recovery,
+                owner_unit_id: 1,
+                last_activated_turn: 1,
+                recovery_turns_remaining: 0,
+            }],
+        };
+        let recovered = tick_djinn_recovery(&mut state);
+        assert_eq!(recovered, vec!["flint"]);
+        assert_eq!(state.trackers[0].state, DjinnBattleState::Set);
+    }
+
+    // -----------------------------------------------------------------------
+    // calculate_set_bonuses — additional edge case tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_calculate_set_bonuses_all_stats() {
+        // forge has atk:4 and mag:2, fever has atk:3 and spd:3.
+        let state = make_djinn_state(&[
+            ("forge", 1, DjinnBattleState::Set),
+            ("fever", 1, DjinnBattleState::Set),
+        ]);
+        let registry = make_test_registry();
+        let (atk, def, mag, spd, hp, pp) = calculate_set_bonuses(1, &state, &registry);
+        assert_eq!(atk, 4 + 3); // forge(4) + fever(3)
+        assert_eq!(def, 0);
+        assert_eq!(mag, 2); // forge only
+        assert_eq!(spd, 3); // fever only
+        assert_eq!(hp, 0);
+        assert_eq!(pp, 0);
+    }
+
+    #[test]
+    fn test_calculate_set_bonuses_multiple_units() {
+        // Two different units with different djinn.
+        let state = make_djinn_state(&[
+            ("flint", 1, DjinnBattleState::Set),
+            ("forge", 2, DjinnBattleState::Set),
+        ]);
+        let registry = make_test_registry();
+        let (atk1, _, _, _, _, _) = calculate_set_bonuses(1, &state, &registry);
+        let (atk2, _, _, _, _, _) = calculate_set_bonuses(2, &state, &registry);
+        assert_eq!(atk1, 3); // flint
+        assert_eq!(atk2, 4); // forge
+    }
+
+    // -----------------------------------------------------------------------
+    // get_granted_abilities — additional edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_get_granted_abilities_unknown_djinn_id() {
+        let state = make_djinn_state(&[("unknown-djinn", 1, DjinnBattleState::Set)]);
+        let registry = make_test_registry();
+        let abilities = get_granted_abilities(1, &state, &registry);
+        assert!(abilities.is_empty());
+    }
+
+    #[test]
+    fn test_get_granted_abilities_empty_state() {
+        let state = make_djinn_state(&[]);
+        let registry = make_test_registry();
+        let abilities = get_granted_abilities(1, &state, &registry);
+        assert!(abilities.is_empty());
+    }
+
+    #[test]
+    fn test_get_granted_abilities_wrong_unit() {
+        let state = make_djinn_state(&[("flint", 2, DjinnBattleState::Set)]);
+        let registry = make_test_registry();
+        let abilities = get_granted_abilities(1, &state, &registry);
+        assert!(abilities.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // element_compatibility — neutral edge case
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_element_compatibility_neutral_element() {
+        // Neutral paired with anything non-Neutral should be Neutral compatibility.
+        assert_eq!(
+            element_compatibility(Element::Neutral, Element::Venus),
+            ElementCompatibility::Neutral
+        );
+        assert_eq!(
+            element_compatibility(Element::Venus, Element::Neutral),
+            ElementCompatibility::Neutral
+        );
+    }
+
+    #[test]
+    fn test_element_compatibility_neutral_with_itself() {
+        assert_eq!(
+            element_compatibility(Element::Neutral, Element::Neutral),
+            ElementCompatibility::Same
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // calculate_djinn_synergy — comprehensive tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_synergy_empty_elements() {
+        let s = calculate_djinn_synergy(&[]);
+        assert_eq!(s.atk_bonus, 0);
+        assert_eq!(s.def_bonus, 0);
+        assert_eq!(s.spd_bonus, 0);
+        assert_eq!(s.class_name, "Base");
+        assert!(s.abilities_unlocked.is_empty());
+    }
+
+    #[test]
+    fn test_synergy_single_element() {
+        let s = calculate_djinn_synergy(&[Element::Venus]);
+        assert_eq!(s.atk_bonus, 4);
+        assert_eq!(s.def_bonus, 3);
+        assert_eq!(s.spd_bonus, 0);
+        assert_eq!(s.class_name, "Adept");
+    }
+
+    #[test]
+    fn test_synergy_two_same_elements() {
+        let s = calculate_djinn_synergy(&[Element::Mars, Element::Mars]);
+        assert_eq!(s.atk_bonus, 8);
+        assert_eq!(s.def_bonus, 5);
+        assert_eq!(s.spd_bonus, 0);
+        assert!(s.class_name.contains("Mars"));
+        assert!(s.class_name.contains("Warrior"));
+    }
+
+    #[test]
+    fn test_synergy_two_different_elements() {
+        let s = calculate_djinn_synergy(&[Element::Venus, Element::Mars]);
+        assert_eq!(s.atk_bonus, 5);
+        assert_eq!(s.def_bonus, 5);
+        assert_eq!(s.spd_bonus, 0);
+        assert_eq!(s.class_name, "Hybrid");
+    }
+
+    #[test]
+    fn test_synergy_three_same_unlocks_ultimate() {
+        let s = calculate_djinn_synergy(&[Element::Jupiter, Element::Jupiter, Element::Jupiter]);
+        assert_eq!(s.atk_bonus, 12);
+        assert_eq!(s.def_bonus, 8);
+        assert!(s.class_name.contains("Adept"));
+        assert!(s.abilities_unlocked.len() == 1);
+        assert!(s.abilities_unlocked[0].contains("Jupiter"));
+        assert!(s.abilities_unlocked[0].contains("Ultimate"));
+    }
+
+    #[test]
+    fn test_synergy_three_two_unique_knight() {
+        // 2 of one element, 1 of another => max_count == 2, unique == 2.
+        let s = calculate_djinn_synergy(&[Element::Mercury, Element::Mercury, Element::Venus]);
+        assert_eq!(s.atk_bonus, 8);
+        assert_eq!(s.def_bonus, 6);
+        assert!(s.class_name.contains("Knight"));
+        assert!(s.abilities_unlocked.contains(&"Hybrid-Spell".to_string()));
+    }
+
+    #[test]
+    fn test_synergy_three_all_different_mystic() {
+        // All different elements => unique == 3.
+        let s = calculate_djinn_synergy(&[Element::Venus, Element::Mars, Element::Mercury]);
+        assert_eq!(s.atk_bonus, 4);
+        assert_eq!(s.def_bonus, 4);
+        assert_eq!(s.spd_bonus, 4);
+        assert_eq!(s.class_name, "Mystic");
+        assert!(
+            s.abilities_unlocked
+                .contains(&"Elemental Harmony".to_string())
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Full lifecycle: unleash → summon → recovery tick → back to set
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_full_djinn_lifecycle() {
+        // Start with a Set djinn.
+        let mut state = make_djinn_state(&[("flint", 1, DjinnBattleState::Set)]);
+
+        // Step 1: Unleash — moves to Standby.
+        unleash_djinn("flint", 1, &mut state).unwrap();
+        assert_eq!(state.trackers[0].state, DjinnBattleState::Standby);
+
+        // Step 2: Summon — moves to Recovery.
+        let dmg = summon_djinn(&["flint".into()], 2, &mut state).unwrap();
+        assert_eq!(dmg, constants::SUMMON_DAMAGE_1);
+        assert_eq!(state.trackers[0].state, DjinnBattleState::Recovery);
+        assert_eq!(
+            state.trackers[0].recovery_turns_remaining,
+            constants::DJINN_RECOVERY_TURNS
+        );
+
+        // Step 3: Tick recovery — decrement but not yet recovered (2 turns).
+        let recovered = tick_djinn_recovery(&mut state);
+        assert!(recovered.is_empty());
+        assert_eq!(state.trackers[0].recovery_turns_remaining, 1);
+
+        // Step 4: Second tick — recovers back to Set.
+        let recovered = tick_djinn_recovery(&mut state);
+        assert_eq!(recovered, vec!["flint"]);
+        assert_eq!(state.trackers[0].state, DjinnBattleState::Set);
+        assert_eq!(state.trackers[0].recovery_turns_remaining, 0);
+    }
+
+    #[test]
+    fn test_full_djinn_lifecycle_enhanced() {
+        let registry = make_test_registry();
+        let mut state = make_djinn_state(&[("granite", 1, DjinnBattleState::Set)]);
+
+        // Unleash.
+        unleash_djinn("granite", 1, &mut state).unwrap();
+        assert_eq!(state.trackers[0].state, DjinnBattleState::Standby);
+
+        // Enhanced summon.
+        let result = summon_djinn_enhanced(&["granite".into()], 2, &mut state, &registry).unwrap();
+        assert_eq!(result.stat_buffs.len(), 1);
+        assert_eq!(result.stat_buffs[0], ("def".into(), 10));
+        assert_eq!(state.trackers[0].state, DjinnBattleState::Recovery);
+        assert_eq!(state.trackers[0].recovery_turns_remaining, 3); // granite recovery_turns = 3
+
+        // Tick 1: 3 -> 2.
+        assert!(tick_djinn_recovery(&mut state).is_empty());
+        assert_eq!(state.trackers[0].recovery_turns_remaining, 2);
+
+        // Tick 2: 2 -> 1.
+        assert!(tick_djinn_recovery(&mut state).is_empty());
+        assert_eq!(state.trackers[0].recovery_turns_remaining, 1);
+
+        // Tick 3: recovers.
+        let recovered = tick_djinn_recovery(&mut state);
+        assert_eq!(recovered, vec!["granite"]);
+        assert_eq!(state.trackers[0].state, DjinnBattleState::Set);
     }
 }
