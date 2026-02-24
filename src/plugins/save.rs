@@ -130,6 +130,31 @@ impl SaveData {
             }
         }
 
+        // Fall back to Party persisted levels/HP if no battle units are live
+        if runtime_stats_by_unit_id.is_empty() {
+            for unit_id in party.active.iter().chain(party.bench.iter()) {
+                if runtime_stats_by_unit_id.contains_key(unit_id) {
+                    continue;
+                }
+                let (level, xp) = party.unit_levels.get(unit_id).copied().unwrap_or((1, 0));
+                let (hp, pp) = party.unit_hp_pp.get(unit_id).copied().unwrap_or_else(|| {
+                    let (base_hp, base_pp) =
+                        base_stats_by_id.get(unit_id).copied().unwrap_or((100, 30));
+                    (base_hp, base_pp)
+                });
+                runtime_stats_by_unit_id.insert(
+                    unit_id.clone(),
+                    PartyMemberSaveData {
+                        unit_id: unit_id.clone(),
+                        hp,
+                        pp,
+                        level,
+                        xp,
+                    },
+                );
+            }
+        }
+
         let mut member_ids = Vec::<String>::new();
         for unit_id in party.active.iter().chain(party.bench.iter()) {
             if !member_ids.iter().any(|id| id == unit_id) {
@@ -179,6 +204,16 @@ impl SaveData {
     pub fn apply_to_game(&self, world: &mut World) {
         let mut restored_party = self.party.clone();
         restored_party.gold = self.gold;
+
+        // Restore unit_levels and unit_hp_pp on the party from saved party_data
+        for member in &self.party_data {
+            restored_party
+                .unit_levels
+                .insert(member.unit_id.clone(), (member.level, member.xp));
+            restored_party
+                .unit_hp_pp
+                .insert(member.unit_id.clone(), (member.hp, member.pp));
+        }
 
         if let Some(mut party) = world.get_resource_mut::<Party>() {
             *party = restored_party;

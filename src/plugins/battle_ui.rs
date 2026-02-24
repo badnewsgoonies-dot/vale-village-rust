@@ -8,8 +8,8 @@ use bevy::prelude::*;
 
 use super::core_plugin::GameState;
 use crate::battle::types::{
-    BattleAction, BattlePhase, BattleStateRes, BattleUnit, CommandMenu, CommandSelectState,
-    UnitSide,
+    BattleAction, BattlePhase, BattleRewards, BattleStateRes, BattleUnit, CommandMenu,
+    CommandSelectState, DamageEvent, EndBattleEvent, LevelUpEvent, UnitSide,
 };
 use crate::components::stats::Element;
 
@@ -104,7 +104,20 @@ struct EnemyTargetIndicator {
     index: usize,
 }
 
+#[derive(Component)]
+struct VictoryScreenRoot;
+
+#[derive(Component)]
+struct DefeatScreenRoot;
+
 // ── Resources ─────────────────────────────────────────────────────────
+
+#[derive(Resource, Default)]
+struct BattleResultCache {
+    rewards: Option<BattleRewards>,
+    level_ups: Vec<LevelUpEvent>,
+    displayed: bool,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
@@ -185,7 +198,8 @@ pub struct BattleUiPlugin;
 
 impl Plugin for BattleUiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(GameState::Battle), setup_battle_ui)
+        app.init_resource::<BattleResultCache>()
+            .add_systems(OnEnter(GameState::Battle), setup_battle_ui)
             .add_systems(
                 Update,
                 (
@@ -197,9 +211,20 @@ impl Plugin for BattleUiPlugin {
                     update_turn_order_display,
                     update_damage_numbers,
                     update_battle_message,
+                    cache_end_battle_event,
+                    spawn_damage_numbers,
+                    animate_damage_numbers,
                 )
                     .chain()
                     .run_if(in_state(GameState::Battle)),
+            )
+            .add_systems(
+                Update,
+                battle_victory_ui_system.run_if(in_state(BattlePhase::Victory)),
+            )
+            .add_systems(
+                Update,
+                battle_defeat_ui_system.run_if(in_state(BattlePhase::Defeat)),
             )
             .add_systems(OnExit(GameState::Battle), cleanup_battle);
     }
@@ -938,6 +963,311 @@ fn update_battle_message(
     }
 }
 
+// ── Cache end-battle event ────────────────────────────────────────────
+
+fn cache_end_battle_event(
+    mut events: EventReader<EndBattleEvent>,
+    mut cache: ResMut<BattleResultCache>,
+) {
+    for event in events.read() {
+        cache.rewards = event.rewards.clone();
+        cache.level_ups = event.level_ups.clone();
+        cache.displayed = false;
+    }
+}
+
+// ── Victory UI ───────────────────────────────────────────────────────
+
+const DEFEAT_RED: Color = Color::srgb(0.9, 0.15, 0.15);
+const OVERLAY_BG: Color = Color::srgba(0.02, 0.02, 0.08, 0.92);
+
+fn battle_victory_ui_system(
+    mut commands: Commands,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut cache: ResMut<BattleResultCache>,
+    mut next_game_state: ResMut<NextState<GameState>>,
+    existing: Query<Entity, With<VictoryScreenRoot>>,
+) {
+    // Spawn UI once
+    if !cache.displayed {
+        cache.displayed = true;
+
+        let rewards = cache.rewards.as_ref();
+        let gold = rewards.map_or(0, |r| r.total_gold);
+        let xp = rewards.map_or(0, |r| r.xp_per_unit);
+        let items: Vec<String> = rewards.map(|r| r.item_drops.clone()).unwrap_or_default();
+
+        commands
+            .spawn((
+                VictoryScreenRoot,
+                BattleRoot,
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Column,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    row_gap: Val::Px(12.0),
+                    ..default()
+                },
+                BackgroundColor(OVERLAY_BG),
+                GlobalZIndex(20),
+            ))
+            .with_children(|root| {
+                // "VICTORY!" header
+                root.spawn((
+                    Text::new("VICTORY!"),
+                    TextFont {
+                        font_size: 48.0,
+                        ..default()
+                    },
+                    TextColor(BRIGHT_GOLD),
+                ));
+
+                // Gold earned
+                root.spawn((
+                    Text::new(format!("Gold earned: {gold}")),
+                    TextFont {
+                        font_size: 22.0,
+                        ..default()
+                    },
+                    TextColor(GOLD_TEXT),
+                ));
+
+                // XP per unit
+                root.spawn((
+                    Text::new(format!("XP per unit: {xp}")),
+                    TextFont {
+                        font_size: 22.0,
+                        ..default()
+                    },
+                    TextColor(GOLD_TEXT),
+                ));
+
+                // Level-up messages
+                for lu in &cache.level_ups {
+                    root.spawn((
+                        Text::new(format!(
+                            "{} leveled up! Lv.{} -> Lv.{}",
+                            lu.unit_name, lu.old_level, lu.new_level
+                        )),
+                        TextFont {
+                            font_size: 18.0,
+                            ..default()
+                        },
+                        TextColor(BRIGHT_GOLD),
+                    ));
+
+                    if !lu.new_abilities.is_empty() {
+                        root.spawn((
+                            Text::new(format!("  Learned: {}", lu.new_abilities.join(", "))),
+                            TextFont {
+                                font_size: 16.0,
+                                ..default()
+                            },
+                            TextColor(DIM_TEXT),
+                        ));
+                    }
+                }
+
+                // Item drops
+                if !items.is_empty() {
+                    root.spawn((
+                        Text::new(format!("Items found: {}", items.join(", "))),
+                        TextFont {
+                            font_size: 18.0,
+                            ..default()
+                        },
+                        TextColor(GOLD_TEXT),
+                    ));
+                }
+
+                // Spacer
+                root.spawn(Node {
+                    height: Val::Px(20.0),
+                    ..default()
+                });
+
+                // Prompt
+                root.spawn((
+                    Text::new("Press Enter to continue"),
+                    TextFont {
+                        font_size: 16.0,
+                        ..default()
+                    },
+                    TextColor(DIM_TEXT),
+                ));
+            });
+    }
+
+    // Wait for Enter to return to overworld
+    if keys.just_pressed(KeyCode::Enter) && !existing.is_empty() {
+        next_game_state.set(GameState::Overworld);
+    }
+}
+
+// ── Defeat UI ────────────────────────────────────────────────────────
+
+fn battle_defeat_ui_system(
+    mut commands: Commands,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut cache: ResMut<BattleResultCache>,
+    mut next_game_state: ResMut<NextState<GameState>>,
+    existing: Query<Entity, With<DefeatScreenRoot>>,
+) {
+    // Spawn UI once
+    if !cache.displayed {
+        cache.displayed = true;
+
+        commands
+            .spawn((
+                DefeatScreenRoot,
+                BattleRoot,
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Column,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    row_gap: Val::Px(16.0),
+                    ..default()
+                },
+                BackgroundColor(OVERLAY_BG),
+                GlobalZIndex(20),
+            ))
+            .with_children(|root| {
+                // "DEFEAT" header
+                root.spawn((
+                    Text::new("DEFEAT"),
+                    TextFont {
+                        font_size: 48.0,
+                        ..default()
+                    },
+                    TextColor(DEFEAT_RED),
+                ));
+
+                root.spawn((
+                    Text::new("Your party has been defeated..."),
+                    TextFont {
+                        font_size: 22.0,
+                        ..default()
+                    },
+                    TextColor(DIM_TEXT),
+                ));
+
+                // Spacer
+                root.spawn(Node {
+                    height: Val::Px(20.0),
+                    ..default()
+                });
+
+                root.spawn((
+                    Text::new("Press Enter to return to title"),
+                    TextFont {
+                        font_size: 16.0,
+                        ..default()
+                    },
+                    TextColor(DIM_TEXT),
+                ));
+            });
+    }
+
+    // Wait for Enter to return to main menu
+    if keys.just_pressed(KeyCode::Enter) && !existing.is_empty() {
+        next_game_state.set(GameState::MainMenu);
+    }
+}
+
+// ── Damage numbers ───────────────────────────────────────────────────
+
+fn spawn_damage_numbers(
+    mut commands: Commands,
+    mut damage_events: EventReader<DamageEvent>,
+    units: Query<&BattleUnit>,
+    enemy_res: Res<BattleEnemies>,
+    party_res: Res<BattleParty>,
+) {
+    for event in damage_events.read() {
+        // Determine position based on target
+        let target_unit = units.iter().find(|u| u.id == event.target_id);
+        let (x, y) = if let Some(unit) = target_unit {
+            match unit.side {
+                UnitSide::Enemy => {
+                    let index = enemy_res
+                        .enemies
+                        .iter()
+                        .position(|e| e.id == event.target_id)
+                        .unwrap_or(0);
+                    let spacing = 140.0;
+                    let total_width = (enemy_res.enemies.len().saturating_sub(1)) as f32 * spacing;
+                    let start_x = -total_width / 2.0;
+                    (start_x + index as f32 * spacing, 80.0)
+                }
+                UnitSide::Player => {
+                    let index = party_res
+                        .members
+                        .iter()
+                        .position(|m| m.id == event.target_id)
+                        .unwrap_or(0);
+                    let spacing = 150.0;
+                    let total_width = (party_res.members.len().saturating_sub(1)) as f32 * spacing;
+                    let start_x = -total_width / 2.0;
+                    (start_x + index as f32 * spacing, -100.0)
+                }
+            }
+        } else {
+            (0.0, 0.0)
+        };
+
+        let color = if event.was_blocked {
+            Color::srgb(0.5, 0.5, 0.9)
+        } else {
+            Color::srgb(1.0, 0.3, 0.2)
+        };
+
+        let text = if event.damage >= 0 {
+            format!("{}", event.damage)
+        } else {
+            // Negative means healing display
+            format!("+{}", -event.damage)
+        };
+
+        commands.spawn((
+            DamageNumber {
+                lifetime: Timer::from_seconds(1.0, TimerMode::Once),
+                velocity: Vec2::new(0.0, 60.0),
+            },
+            Text2d::new(text),
+            TextFont {
+                font_size: 24.0,
+                ..default()
+            },
+            TextColor(color),
+            Transform::from_xyz(x, y, 100.0),
+        ));
+    }
+}
+
+fn animate_damage_numbers(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut DamageNumber, &mut Transform, &mut TextColor)>,
+) {
+    for (entity, mut dmg, mut tf, mut color) in &mut query {
+        dmg.lifetime.tick(time.delta());
+        tf.translation.x += dmg.velocity.x * time.delta_secs();
+        tf.translation.y += dmg.velocity.y * time.delta_secs();
+
+        let alpha = 1.0 - dmg.lifetime.fraction();
+        let base = color.0.to_srgba();
+        color.0 = Color::srgba(base.red, base.green, base.blue, alpha);
+
+        if dmg.lifetime.finished() {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
 fn cleanup_battle(mut commands: Commands, query: Query<Entity, With<BattleRoot>>) {
     for entity in &query {
         commands.entity(entity).despawn();
@@ -945,4 +1275,5 @@ fn cleanup_battle(mut commands: Commands, query: Query<Entity, With<BattleRoot>>
     commands.remove_resource::<BattleUiState>();
     commands.remove_resource::<BattleEnemies>();
     commands.remove_resource::<BattleParty>();
+    commands.remove_resource::<BattleResultCache>();
 }

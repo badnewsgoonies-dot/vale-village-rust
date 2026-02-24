@@ -60,6 +60,12 @@ pub struct Party {
     pub inventory: Vec<String>,
     /// Equipped items per unit: unit_id -> (slot_name -> equipment_id).
     pub equipment: HashMap<String, HashMap<String, String>>,
+    /// Persisted level/XP per unit: unit_id -> (level, xp)
+    pub unit_levels: HashMap<String, (u8, u32)>,
+    /// Persisted HP/PP per unit: unit_id -> (current_hp, current_pp)
+    pub unit_hp_pp: HashMap<String, (i32, i32)>,
+    /// Djinn assignments: djinn_id -> owning unit_id.
+    pub djinn_assignments: HashMap<String, String>,
 }
 
 impl Default for Party {
@@ -70,6 +76,9 @@ impl Default for Party {
             gold: 100,
             inventory: Vec::new(),
             equipment: HashMap::new(),
+            unit_levels: HashMap::new(),
+            unit_hp_pp: HashMap::new(),
+            djinn_assignments: HashMap::new(),
         }
     }
 }

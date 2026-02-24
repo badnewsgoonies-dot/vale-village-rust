@@ -9,6 +9,7 @@ use rand::Rng;
 
 use super::core_plugin::GameState;
 use super::shop::CurrentShop;
+use super::tower::{TowerState, build_floor_definitions, generate_floor_encounter};
 use super::ui::{ScreenTransition, start_transition};
 use crate::battle::types::{
     BattlePhase, BattleUnit, EndBattleEvent, GrowthRates, StartBattleEvent, UnitSide,
@@ -32,6 +33,7 @@ const DOOR: Color = Color::srgb(0.6, 0.45, 0.15);
 const PLAYER_COLOR: Color = Color::srgb(0.85, 0.65, 0.13);
 const NPC_COLOR: Color = Color::srgb(0.3, 0.5, 0.8);
 const NPC_ALT_COLOR: Color = Color::srgb(0.7, 0.4, 0.25);
+const TOWER: Color = Color::srgb(0.4, 0.3, 0.5);
 
 // UI colors
 const GOLD: Color = Color::srgb(0.85, 0.65, 0.13);
@@ -58,6 +60,9 @@ struct DialogText;
 
 #[derive(Component)]
 struct DialogHintText;
+
+#[derive(Component)]
+struct TowerDoor;
 
 // ── Resources ─────────────────────────────────────────────────────────
 
@@ -101,7 +106,7 @@ impl TileMap {
 
     fn is_walkable(&self, x: i32, y: i32) -> bool {
         let t = self.get(x, y);
-        t != 2 && t != 3 && t != 4 // not wall, water, building-interior
+        t != 2 && t != 3 && t != 4 && t != 6 // not wall, water, building-interior, tower
     }
 
     fn is_encounter_zone(&self, x: i32, y: i32) -> bool {
@@ -198,6 +203,14 @@ fn generate_tile_map() -> TileMap {
     }
     tiles[(13 * MAP_WIDTH + 10) as usize] = 5; // door
 
+    // Building: Tower of Trials (right side of map, 3 wide x 4 tall)
+    for y in 2..6 {
+        for x in 25..28 {
+            tiles[(y * MAP_WIDTH + x) as usize] = 6; // tower wall
+        }
+    }
+    tiles[(5 * MAP_WIDTH + 26) as usize] = 5; // tower door
+
     // Fence / walls
     for x in 3..8 {
         tiles[(8 * MAP_WIDTH + x) as usize] = 2;
@@ -275,6 +288,7 @@ fn setup_overworld(
                 3 => WATER,
                 4 => BUILDING,
                 5 => DOOR,
+                6 => TOWER,
                 _ => GRASS,
             };
 
@@ -285,6 +299,10 @@ fn setup_overworld(
             ));
             if tilemap.is_encounter_zone(x, y) {
                 tile_entity.insert(EncounterZone);
+            }
+            // Mark the tower door tile
+            if x == 26 && y == 5 && tile == 5 {
+                tile_entity.insert(TowerDoor);
             }
         }
     }
@@ -364,6 +382,18 @@ fn setup_overworld(
             "The path north leads to the Corrupted Tower.".into(),
             "Only the bravest adventurers dare enter.".into(),
             "Make sure you have Djinn equipped before you go!".into(),
+        ],
+        None,
+    );
+    spawn_npc(
+        &mut commands,
+        "Tower Guard",
+        GridPosition::new(26, 6),
+        NPC_ALT_COLOR,
+        vec![
+            "The Tower of Trials awaits brave adventurers.".into(),
+            "Enter through the door when you're ready.".into(),
+            "Each floor holds stronger foes than the last.".into(),
         ],
         None,
     );
@@ -450,6 +480,7 @@ fn player_movement(
     time: Res<Time>,
     tilemap: Res<TileMap>,
     dialog: Res<DialogState>,
+    tower_state: Res<TowerState>,
     mut return_position: ResMut<BattleReturnPosition>,
     mut start_battle_events: EventWriter<StartBattleEvent>,
     mut next_game_state: ResMut<NextState<GameState>>,
@@ -498,6 +529,42 @@ fn player_movement(
                 transform.translation.x = nx as f32 * TILE_SIZE;
                 transform.translation.y = -(ny as f32) * TILE_SIZE;
                 movement.move_cooldown.reset();
+
+                // Tower door interaction: stepping onto the tower door
+                // triggers a tower floor encounter.
+                if nx == 26 && ny == 5 && tilemap.get(nx, ny) == 5 && tower_state.is_active {
+                    let floors = build_floor_definitions();
+                    let floor_idx = (tower_state.current_floor as usize).saturating_sub(1);
+                    if let Some(floor_def) = floors.get(floor_idx) {
+                        let mut rng = rand::thread_rng();
+                        let encounter_pairs = generate_floor_encounter(floor_def, &mut rng);
+                        let registry = enemies::build_enemy_registry();
+                        let enemy_units: Vec<BattleUnit> = encounter_pairs
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(i, (enemy_id, level_bonus))| {
+                                registry.get(enemy_id).map(|def| {
+                                    let mut unit = enemy_definition_to_battle_unit(
+                                        def,
+                                        ENEMY_BATTLE_ID_BASE + i as u32,
+                                    );
+                                    unit.level = (unit.level as i32 + level_bonus).max(1) as u8;
+                                    unit
+                                })
+                            })
+                            .collect();
+                        if !enemy_units.is_empty() {
+                            return_position.player_position = Some(*grid_pos);
+                            start_battle_events.send(StartBattleEvent {
+                                encounter_id: format!("tower-floor-{}", tower_state.current_floor),
+                                enemy_units,
+                            });
+                            next_battle_phase.set(BattlePhase::CommandSelect);
+                            next_game_state.set(GameState::Battle);
+                            break;
+                        }
+                    }
+                }
 
                 if tilemap.is_encounter_zone(nx, ny) {
                     let mut rng = rand::thread_rng();

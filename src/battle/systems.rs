@@ -37,16 +37,37 @@ pub fn spawn_party_battle_units(
     mut commands: Commands,
     party: Res<Party>,
     game_data: Res<GameData>,
+    mut djinn_state: ResMut<DjinnBattleRes>,
 ) {
+    // Initialize djinn trackers from party assignments
+    djinn_state.trackers.clear();
+    for djinn_id in party.djinn_assignments.keys() {
+        if let Some(djinn_def) = game_data.djinn.get(djinn_id) {
+            // Find the owner's battle unit index (will be assigned once units spawn)
+            // For now, store 0 and fix up after spawning
+            djinn_state
+                .trackers
+                .push(crate::battle::types::DjinnTracker {
+                    djinn_id: djinn_id.clone(),
+                    state: crate::battle::types::DjinnBattleState::Set,
+                    owner_unit_id: 0, // fixed up below
+                    last_activated_turn: 0,
+                    recovery_turns_remaining: 0,
+                });
+            let _ = djinn_def; // used for validation
+        }
+    }
+
     for (i, unit_id) in party.active.iter().enumerate() {
         let Some(def) = game_data.units.get(unit_id) else {
             continue;
         };
 
-        // Calculate level-scaled stats (base + growth * (level - 1))
-        // Use stored level if available, otherwise start at 1
-        let level: u8 = 1; // TODO: persist levels across battles via Party
+        // Retrieve persisted level/XP or start at level 1
+        let (level, xp) = party.unit_levels.get(unit_id).copied().unwrap_or((1, 0));
         let lvl = (level as i32 - 1).max(0);
+
+        // Calculate level-scaled stats (base + growth * (level - 1))
         let base_hp = def.base_hp + def.growth.hp * lvl;
         let base_pp = def.base_pp + def.growth.pp * lvl;
         let base_atk = def.base_atk + def.growth.atk * lvl;
@@ -79,15 +100,64 @@ pub fn spawn_party_battle_units(
         let mut all_abilities = ability_ids;
         all_abilities.append(&mut equip_abilities);
 
+        // Collect djinn assigned to this unit and apply set bonuses
+        let unit_djinn_ids: Vec<String> = party
+            .djinn_assignments
+            .iter()
+            .filter(|(_, owner)| owner.as_str() == unit_id)
+            .map(|(djinn_id, _)| djinn_id.clone())
+            .collect();
+
+        // Sum set bonuses from all assigned djinn
+        let (mut dj_atk, mut dj_def, mut dj_mag, mut dj_spd, mut dj_hp, mut dj_pp) =
+            (0i32, 0i32, 0i32, 0i32, 0i32, 0i32);
+        for djinn_id in &unit_djinn_ids {
+            if let Some(djinn_def) = game_data.djinn.get(djinn_id) {
+                dj_atk += djinn_def.set_bonus.atk;
+                dj_def += djinn_def.set_bonus.def;
+                dj_mag += djinn_def.set_bonus.mag;
+                dj_spd += djinn_def.set_bonus.spd;
+                dj_hp += djinn_def.set_bonus.hp;
+                dj_pp += djinn_def.set_bonus.pp;
+                // Add djinn-granted abilities
+                all_abilities.extend(djinn_def.granted_ability_ids.clone());
+            }
+        }
+
+        let hp = hp + dj_hp;
+        let pp = pp + dj_pp;
+        let atk = atk + dj_atk;
+        let defense = defense + dj_def;
+        let mag = mag + dj_mag;
+        let spd = spd + dj_spd;
+
+        // Respect persisted HP/PP if available (clamped to current max)
+        let (current_hp, current_pp) = party.unit_hp_pp.get(unit_id).copied().unwrap_or((hp, pp));
+        let current_hp = current_hp.clamp(1, hp); // at least 1 HP to enter battle alive
+        let current_pp = current_pp.clamp(0, pp);
+
+        let battle_id = (i + 1) as u32;
+
+        // Fix up djinn tracker owner IDs
+        for djinn_id in &unit_djinn_ids {
+            if let Some(tracker) = djinn_state
+                .trackers
+                .iter_mut()
+                .find(|t| t.djinn_id == *djinn_id)
+            {
+                tracker.owner_unit_id = battle_id;
+            }
+        }
+
         let battle_unit = BattleUnit {
-            id: (i + 1) as u32,
+            id: battle_id,
             name: def.name.clone(),
             side: UnitSide::Player,
             element: def.element,
             level,
-            hp,
+            hp: current_hp,
             max_hp: hp,
-            pp,
+            pp: current_pp,
             max_pp: pp,
             atk,
             def: defense,
@@ -96,10 +166,10 @@ pub fn spawn_party_battle_units(
             luck: 5 + i32::from(level / 2),
             status_effects: Vec::new(),
             ability_ids: all_abilities,
-            djinn_ids: Vec::new(),
+            djinn_ids: unit_djinn_ids,
             damage_taken: 0,
             damage_dealt: 0,
-            xp: 0,
+            xp,
             growth_rates: GrowthRates {
                 hp: def.growth.hp,
                 pp: def.growth.pp,
@@ -822,13 +892,31 @@ fn execute_basic_attack(
     };
 
     if let Some(mut target) = units.iter_mut().find(|u| u.id == target_id) {
-        let dmg = damage::calculate_physical_damage(
+        // Accuracy check — miss if blind or unlucky
+        if !damage::check_accuracy(&attacker, &target, &mut rng.0) {
+            damage_events.send(DamageEvent {
+                attacker_id,
+                target_id,
+                damage: 0,
+                element: Some(attacker.element),
+                was_blocked: false,
+            });
+            return;
+        }
+
+        let mut dmg = damage::calculate_physical_damage(
             &attacker,
             &target,
             &basic_attack,
             target_defending,
             &mut rng.0,
         );
+
+        // Critical hit check
+        if damage::calculate_crit(&attacker, &mut rng.0) {
+            dmg = (dmg as f32 * 1.5) as i32;
+        }
+
         let result = damage::apply_damage_with_shields(&mut target, dmg);
         damage_events.send(DamageEvent {
             attacker_id,
@@ -923,33 +1011,47 @@ fn execute_ability(
             match ability.targets {
                 TargetKind::SingleEnemy | TargetKind::SingleAlly | TargetKind::OneSelf => {
                     if let Some(mut target) = units.iter_mut().find(|u| u.id == target_id) {
-                        let dmg = damage::calculate_damage(
-                            &caster,
-                            &target,
-                            &ability,
-                            target_defending,
-                            &mut rng.0,
-                        );
-                        let result = damage::apply_damage_with_shields(&mut target, dmg);
-                        damage_events.send(DamageEvent {
-                            attacker_id: caster_id,
-                            target_id,
-                            damage: result.actual_damage,
-                            element: ability.element,
-                            was_blocked: result.was_blocked,
-                        });
-                        // Apply status from ability
-                        if let Some(ref se) = ability.status_effect
-                            && let Some(battle_status) = convert_status_effect(se)
-                        {
-                            status::apply_status_to_unit(&mut target, battle_status);
-                        }
-                        if target.is_ko() {
-                            ko_events.send(UnitKoEvent {
-                                unit_id: target.id,
-                                unit_name: target.name.clone(),
-                                side: target.side,
+                        // Accuracy check for offensive abilities
+                        if !damage::check_accuracy(&caster, &target, &mut rng.0) {
+                            damage_events.send(DamageEvent {
+                                attacker_id: caster_id,
+                                target_id,
+                                damage: 0,
+                                element: ability.element,
+                                was_blocked: false,
                             });
+                        } else {
+                            let mut dmg = damage::calculate_damage(
+                                &caster,
+                                &target,
+                                &ability,
+                                target_defending,
+                                &mut rng.0,
+                            );
+                            if damage::calculate_crit(&caster, &mut rng.0) {
+                                dmg = (dmg as f32 * 1.5) as i32;
+                            }
+                            let result = damage::apply_damage_with_shields(&mut target, dmg);
+                            damage_events.send(DamageEvent {
+                                attacker_id: caster_id,
+                                target_id,
+                                damage: result.actual_damage,
+                                element: ability.element,
+                                was_blocked: result.was_blocked,
+                            });
+                            // Apply status from ability
+                            if let Some(ref se) = ability.status_effect
+                                && let Some(battle_status) = convert_status_effect(se)
+                            {
+                                status::apply_status_to_unit(&mut target, battle_status);
+                            }
+                            if target.is_ko() {
+                                ko_events.send(UnitKoEvent {
+                                    unit_id: target.id,
+                                    unit_name: target.name.clone(),
+                                    side: target.side,
+                                });
+                            }
                         }
                     }
                 }
@@ -1144,16 +1246,18 @@ fn buff_to_status_effects(
 // Victory / Defeat
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub fn victory_system(
     mut units: Query<&mut BattleUnit>,
     mut end_events: EventWriter<EndBattleEvent>,
     game_data: Res<GameData>,
+    mut battle_rng: ResMut<BattleRng>,
+    mut party: ResMut<Party>,
 ) {
     let enemy_xp_gold: Vec<(u32, u32)> = units
         .iter()
         .filter(|u| u.side == UnitSide::Enemy)
         .filter_map(|u| {
-            // Look up base_xp and base_gold from enemy definitions by name
             game_data
                 .enemies
                 .values()
@@ -1162,19 +1266,43 @@ pub fn victory_system(
         })
         .collect();
 
-    let mut party: Vec<BattleUnit> = units
+    let mut party_units: Vec<BattleUnit> = units
         .iter()
         .filter(|u| u.side == UnitSide::Player)
         .cloned()
         .collect();
-    let party_size = party.len() as u32;
-    let survivor_count = party.iter().filter(|u| u.is_alive()).count() as u32;
+    let party_size = party_units.len() as u32;
+    let survivor_count = party_units.iter().filter(|u| u.is_alive()).count() as u32;
 
-    let battle_rewards =
-        rewards::calculate_battle_rewards(&enemy_xp_gold, party_size, survivor_count);
-    let level_ups = rewards::distribute_rewards(&mut party, &battle_rewards);
+    let battle_rewards = rewards::calculate_battle_rewards(
+        &enemy_xp_gold,
+        party_size,
+        survivor_count,
+        &mut battle_rng.0,
+    );
 
-    for updated in &party {
+    // Build ability unlock map: unit_id -> [(unlock_level, ability_id)]
+    let mut ability_unlocks = std::collections::HashMap::new();
+    for unit in &party_units {
+        let unlocks: Vec<(u8, String)> = game_data
+            .units
+            .values()
+            .find(|def| def.name == unit.name)
+            .map(|def| {
+                def.abilities
+                    .iter()
+                    .map(|a| (a.unlock_level, a.ability_id.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        ability_unlocks.insert(unit.id, unlocks);
+    }
+
+    let level_ups =
+        rewards::distribute_rewards(&mut party_units, &battle_rewards, &ability_unlocks);
+
+    // Write updated stats back to ECS entities
+    for updated in &party_units {
         if let Some(mut unit) = units.iter_mut().find(|u| u.id == updated.id) {
             unit.hp = updated.hp;
             unit.max_hp = updated.max_hp;
@@ -1189,6 +1317,17 @@ pub fn victory_system(
         }
     }
 
+    // Persist levels/XP and HP/PP back to Party resource
+    persist_party_state(&mut party, &party_units, &game_data);
+
+    // Award gold
+    party.gold += battle_rewards.total_gold;
+
+    // Add dropped items to party inventory
+    for item_id in &battle_rewards.item_drops {
+        party.inventory.push(item_id.clone());
+    }
+
     end_events.send(EndBattleEvent {
         victory: true,
         rewards: Some(battle_rewards),
@@ -1196,10 +1335,42 @@ pub fn victory_system(
     });
 }
 
-pub fn defeat_system(mut end_events: EventWriter<EndBattleEvent>) {
+pub fn defeat_system(
+    mut end_events: EventWriter<EndBattleEvent>,
+    units: Query<&BattleUnit>,
+    mut party: ResMut<Party>,
+    game_data: Res<GameData>,
+) {
+    // Even on defeat, persist current HP/PP/level state
+    let party_units: Vec<BattleUnit> = units
+        .iter()
+        .filter(|u| u.side == UnitSide::Player)
+        .cloned()
+        .collect();
+    persist_party_state(&mut party, &party_units, &game_data);
+
     end_events.send(EndBattleEvent {
         victory: false,
         rewards: None,
         level_ups: vec![],
     });
+}
+
+/// Write BattleUnit level/XP and HP/PP back to the Party resource for persistence.
+fn persist_party_state(party: &mut Party, battle_units: &[BattleUnit], game_data: &GameData) {
+    // Build name-to-unit-id mapping
+    let name_to_unit_id: std::collections::HashMap<String, String> = game_data
+        .units
+        .iter()
+        .map(|(id, def)| (def.name.clone(), id.clone()))
+        .collect();
+
+    for unit in battle_units {
+        if let Some(unit_id) = name_to_unit_id.get(&unit.name) {
+            party
+                .unit_levels
+                .insert(unit_id.clone(), (unit.level, unit.xp));
+            party.unit_hp_pp.insert(unit_id.clone(), (unit.hp, unit.pp));
+        }
+    }
 }
