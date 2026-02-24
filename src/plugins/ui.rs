@@ -132,6 +132,7 @@ struct PendingTutorialTip {
     duration: f32,
 }
 
+#[allow(dead_code)]
 /// Static definitions for all tutorial tips.
 struct TutorialTipDef {
     #[allow(dead_code)]
@@ -142,8 +143,8 @@ struct TutorialTipDef {
     duration: f32,
 }
 
+#[allow(dead_code)]
 const TUTORIAL_TIPS: &[TutorialTipDef] = &[
-    #[allow(dead_code)]
     TutorialTipDef {
         key: "welcome",
         message: "Welcome to Vale Village! Use arrow keys to move. Talk to NPCs with Enter.",
