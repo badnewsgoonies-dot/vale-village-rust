@@ -390,6 +390,254 @@ impl Achievements {
 }
 
 // ---------------------------------------------------------------------------
+// Weather / atmosphere system — provides visual variety and element bonuses
+// ---------------------------------------------------------------------------
+
+/// Weather types that can occur in the overworld and affect battles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum Weather {
+    #[default]
+    Clear,
+    Rain,
+    Snow,
+    Fog,
+    Sandstorm,
+}
+
+impl Weather {
+    /// Returns all weather variants for iteration.
+    #[allow(dead_code)]
+    pub fn all() -> &'static [Weather] {
+        &[
+            Weather::Clear,
+            Weather::Rain,
+            Weather::Snow,
+            Weather::Fog,
+            Weather::Sandstorm,
+        ]
+    }
+}
+
+/// Tracks the current weather, its intensity, and a transition timer.
+#[derive(Resource, Clone, Debug, Serialize, Deserialize)]
+pub struct WeatherState {
+    /// The current active weather type.
+    pub current: Weather,
+    /// Intensity of the weather effect (0.0 = calm, 1.0 = maximum).
+    pub intensity: f32,
+    /// Seconds remaining until the next weather transition is considered.
+    #[allow(dead_code)]
+    pub transition_timer: f32,
+    /// The zone the player is currently in (used to look up weather weights).
+    #[allow(dead_code)]
+    pub current_zone: String,
+}
+
+impl Default for WeatherState {
+    fn default() -> Self {
+        Self {
+            current: Weather::Clear,
+            intensity: 0.0,
+            transition_timer: 45.0, // start mid-range (30–60s)
+            current_zone: "vale_village".to_string(),
+        }
+    }
+}
+
+/// A single zone's weighted weather probabilities.
+/// Weights do not need to sum to 1.0 — they are normalised at selection time.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ZoneWeatherWeights {
+    pub clear: f32,
+    pub rain: f32,
+    pub snow: f32,
+    pub fog: f32,
+    pub sandstorm: f32,
+}
+
+impl Default for ZoneWeatherWeights {
+    fn default() -> Self {
+        Self {
+            clear: 0.50,
+            rain: 0.20,
+            snow: 0.05,
+            fog: 0.15,
+            sandstorm: 0.10,
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl ZoneWeatherWeights {
+    /// Returns a list of (Weather, weight) pairs for selection.
+    pub fn weighted_list(&self) -> Vec<(Weather, f32)> {
+        vec![
+            (Weather::Clear, self.clear),
+            (Weather::Rain, self.rain),
+            (Weather::Snow, self.snow),
+            (Weather::Fog, self.fog),
+            (Weather::Sandstorm, self.sandstorm),
+        ]
+    }
+
+    /// Selects a weather type given a random value in [0.0, 1.0).
+    /// Weights are normalised internally.  If all weights are zero,
+    /// returns `Weather::Clear` as a safe default.
+    pub fn select(&self, random_value: f32) -> Weather {
+        let pairs = self.weighted_list();
+        let total: f32 = pairs.iter().map(|(_, w)| w).sum();
+        if total <= 0.0 {
+            return Weather::Clear;
+        }
+        let mut cumulative = 0.0;
+        for (weather, weight) in &pairs {
+            cumulative += weight / total;
+            if random_value < cumulative {
+                return *weather;
+            }
+        }
+        // Floating-point rounding guard — return last variant
+        Weather::Sandstorm
+    }
+}
+
+/// Configuration mapping overworld zone names to their weather probabilities.
+#[derive(Resource, Clone, Debug, Serialize, Deserialize)]
+pub struct WeatherConfig {
+    /// Zone name → weighted weather probabilities.
+    pub zones: HashMap<String, ZoneWeatherWeights>,
+}
+
+impl Default for WeatherConfig {
+    fn default() -> Self {
+        let mut zones = HashMap::new();
+        // Vale Village — temperate, mostly clear
+        zones.insert(
+            "vale_village".to_string(),
+            ZoneWeatherWeights {
+                clear: 0.50,
+                rain: 0.25,
+                snow: 0.05,
+                fog: 0.15,
+                sandstorm: 0.05,
+            },
+        );
+        // Mountain area — more snow and fog
+        zones.insert(
+            "mountain".to_string(),
+            ZoneWeatherWeights {
+                clear: 0.20,
+                rain: 0.10,
+                snow: 0.40,
+                fog: 0.25,
+                sandstorm: 0.05,
+            },
+        );
+        // Desert area — sandstorms dominate
+        zones.insert(
+            "desert".to_string(),
+            ZoneWeatherWeights {
+                clear: 0.30,
+                rain: 0.02,
+                snow: 0.0,
+                fog: 0.08,
+                sandstorm: 0.60,
+            },
+        );
+        // Tower dungeon — foggy interior
+        zones.insert(
+            "tower".to_string(),
+            ZoneWeatherWeights {
+                clear: 0.15,
+                rain: 0.0,
+                snow: 0.0,
+                fog: 0.80,
+                sandstorm: 0.05,
+            },
+        );
+        Self { zones }
+    }
+}
+
+#[allow(dead_code)]
+impl WeatherConfig {
+    /// Look up the weather weights for a zone.  Falls back to default weights
+    /// if the zone is not explicitly configured.
+    pub fn weights_for_zone(&self, zone: &str) -> ZoneWeatherWeights {
+        self.zones.get(zone).cloned().unwrap_or_default()
+    }
+}
+
+/// Returns the elemental damage multiplier granted by the current weather.
+///
+/// * Rain boosts Mercury (Water) by 10 % and penalises Mars (Fire) by 10 %.
+/// * Sandstorm boosts Venus (Earth) by 10 % and penalises Jupiter (Wind) by 10 %.
+/// * Snow boosts Mercury (Water) by 5 % and Jupiter (Wind) by 5 %.
+/// * Fog boosts Jupiter (Wind) by 10 %.
+/// * Clear provides no bonus.
+///
+#[allow(dead_code)]
+/// The returned value is a **multiplier** (e.g. `1.1` for a 10 % boost).
+pub fn get_weather_element_bonus(weather: &Weather, element: &Element) -> f32 {
+    match (weather, element) {
+        // Rain: Water +10 %, Fire −10 %
+        (Weather::Rain, Element::Mercury) => 1.10,
+        (Weather::Rain, Element::Mars) => 0.90,
+        // Sandstorm: Earth +10 %, Wind −10 %
+        (Weather::Sandstorm, Element::Venus) => 1.10,
+        (Weather::Sandstorm, Element::Jupiter) => 0.90,
+        // Snow: Water +5 %, Wind +5 %
+        (Weather::Snow, Element::Mercury) => 1.05,
+        (Weather::Snow, Element::Jupiter) => 1.05,
+        // Fog: Wind +10 %
+        (Weather::Fog, Element::Jupiter) => 1.10,
+        // Clear and all other combinations — no modification
+        _ => 1.0,
+    }
+}
+
+/// Bevy system that ticks the weather transition timer and, when it expires,
+/// picks a new weather type based on the current zone's configured weights.
+///
+/// The timer resets to a random value between 30 and 60 seconds (deterministic
+/// via the system's internal counter — a true RNG source can be swapped in
+/// later).
+#[allow(dead_code)]
+pub fn weather_transition_system(
+    time: Res<Time>,
+    mut weather_state: ResMut<WeatherState>,
+    weather_config: Res<WeatherConfig>,
+) {
+    weather_state.transition_timer -= time.delta_secs();
+
+    if weather_state.transition_timer <= 0.0 {
+        let zone = weather_state.current_zone.clone();
+        let weights = weather_config.weights_for_zone(&zone);
+
+        // Simple pseudo-random value derived from elapsed wall-clock time.
+        // This is *not* cryptographically random, but perfectly fine for
+        // weather flavour.  A seeded RNG resource can replace this later.
+        let elapsed = time.elapsed_secs_wrapped();
+        let pseudo_random = (elapsed * 1_000.0).fract();
+
+        let new_weather = weights.select(pseudo_random);
+        weather_state.current = new_weather;
+
+        // Intensity varies with weather type
+        weather_state.intensity = match new_weather {
+            Weather::Clear => 0.0,
+            Weather::Rain => 0.4 + pseudo_random * 0.6, // 0.4–1.0
+            Weather::Snow => 0.3 + pseudo_random * 0.5, // 0.3–0.8
+            Weather::Fog => 0.5 + pseudo_random * 0.5,  // 0.5–1.0
+            Weather::Sandstorm => 0.5 + pseudo_random * 0.5, // 0.5–1.0
+        };
+
+        // Reset timer: 30–60 seconds
+        weather_state.transition_timer = 30.0 + pseudo_random * 30.0;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Core game plugin
 // ---------------------------------------------------------------------------
 
@@ -415,6 +663,8 @@ impl Plugin for CoreGamePlugin {
         app.insert_resource(DifficultySettings::default());
         app.insert_resource(Bestiary::default());
         app.insert_resource(Achievements::build_default());
+        app.insert_resource(WeatherState::default());
+        app.insert_resource(WeatherConfig::default());
 
         // Register component types for reflection
         app.register_type::<crate::components::stats::UnitStats>();
