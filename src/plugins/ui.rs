@@ -91,6 +91,7 @@ struct TutorialTip {
 }
 
 /// Tracks which tutorial tips have already been shown so each tip appears at most once.
+#[allow(dead_code)]
 #[derive(Resource, Debug, Default, Clone)]
 pub struct TutorialState {
     /// Map of tip key -> whether it has been shown.
