@@ -1,0 +1,47 @@
+VALE VILLAGE RUST - MULTI-AGENT ORCHESTRATION METRICS
+=======================================================
+
+Generated from: git history + 12 Claude Code session JSONL logs
+Session: 0b51bb79 (main) + 11 continuation sessions
+Date range: 2026-02-24 17:36 UTC to 2026-02-25 19:47 UTC
+
+FILES IN THIS PACKAGE:
+  wave_git_metrics.csv       - Per-wave git churn (files, lines, hot files)
+  wave_metrics_combined.csv  - Per-wave: dispatches, gates, collisions, tool calls
+  session_log_metrics.csv    - Global session totals
+  collision_details.csv      - Each collision batch with file names and scope type
+  dispatch_log.csv           - All 213 dispatch events with scopes and prompts
+  hot_files_by_wave.csv      - Top 10 churned files per wave
+  commit_log.csv             - Raw git log (40 commits)
+  SUMMARY.txt               - This file
+
+KEY FINDINGS:
+
+1. COLLISION RATE
+   - 10 / 23 dispatch batches had file collisions (43.5%)
+   - Strict-scoped dispatches: 28 (early waves)
+   - Loose-scoped dispatches: 185 (later waves)
+   - Collision files: overworld.rs, battle_ui.rs, core_plugin.rs, djinn.rs, systems.rs
+
+2. INTEGRATION COST
+   - Wave 12 dominates: 7726 integration tool calls (636 check, 375 clippy, 328 test, 184 fmt)
+   - Wave 11 second: 3186 integration tool calls (66 dispatches in one batch)
+   - Total tool events across all sessions: 12,699+
+   - 137 git commits, 72 git pushes
+
+3. GATE COUNTS (GLOBAL)
+   - cargo check: 743 runs
+   - cargo clippy: 458 runs
+   - cargo test: 426 runs
+   - cargo fmt: 230 runs
+
+4. MAX INTEGRATION WAVE
+   - Wave 12: 55.6 wall minutes, 98 git commits, 636 cargo check runs
+   - The orchestrator wrote 'The agents keep fighting me'
+   - 7 WIP commits before clean state
+
+5. SCOPE DISCIPLINE RELAXATION
+   - Waves 3-5: strict scoping (ONLY edit / DO NOT touch)
+   - Wave 6 onward: mixed then fully loose
+   - Collisions present from Wave 3 (path overlap in scopes)
+     but catastrophic in Waves 11-12 (66 and 44 dispatches per batch)

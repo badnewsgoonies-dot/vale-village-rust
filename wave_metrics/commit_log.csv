@@ -1,0 +1,40 @@
+018842b111a3f7e32e94ad1eff0588efd054de7c,2026-02-25T19:47:18+00:00,chore: reconcile wave numbering — dual Git/Session wave IDs throughout
+423d137e983956077d1be77664e64e01467d3c29,2026-02-25T19:36:53+00:00,feat: major revision of orchestration metrics — correct collision rate from 0% to 33%
+f6319d7e9b57a54ae223b049311ca0c5c011c1bb,2026-02-25T19:32:43+00:00,feat: add orchestration metrics analysis — collision rate, integration cost, gate ordering
+d60bfbddadf1cbb59e6d6b2733273bb1d2600546,2026-02-24T22:05:56+00:00,feat: Wave 13 — weather damage multipliers, battle SFX triggers, inventory prep
+d4a6f40ab5f1f92881a34d2c302586ab90d2b350,2026-02-24T21:34:29+00:00,chore: enemy data updates from agent
+8fdc1a2550f065742913e56e910bdec82857f21d,2026-02-24T21:33:58+00:00,chore: tutorial system updates from agent
+3c330a6291f91856988fbf219d3de6f5e7a752d0,2026-02-24T21:31:25+00:00,feat: Wave 12 — weather system, tutorial, enemies, audio, battle backgrounds
+72415042674afcb30befc03cdc7ec358983a435e,2026-02-24T21:26:07+00:00,chore: Wave 12 WIP — tutorial system updates
+9f1f1c95c68778a3fcd1825c88b2e75a202ffcf7,2026-02-24T21:26:01+00:00,chore: Wave 12 WIP — tutorial system updates
+0e240d9aae0b80d5e26af1cc607c29e6e10b9716,2026-02-24T21:24:05+00:00,chore: Wave 12 WIP — tutorial system continued
+db1e6b27d2ffc31b12990ddc760d4201dc81327c,2026-02-24T21:23:06+00:00,chore: Wave 12 WIP — tutorial system progress in ui.rs
+634e0dc43cf086332165e1c1ac005b57ff18cd76,2026-02-24T21:22:27+00:00,chore: Wave 12 WIP — weather system progress in core_plugin
+7df9001aeefaa3f4f26ae5dad5347946f05fdf72,2026-02-24T21:21:24+00:00,feat: Wave 12 partial — new enemies, sprite mappings, tutorial scaffolding
+340963cf681c22ed2dc20f3d7cffd7310b9d9312,2026-02-24T16:19:24-05:00,feat: replace placeholder audio with real CC0 sound files
+4c2898df6ea2fd968af881910a052d3d8758dfcf,2026-02-24T21:18:42+00:00,feat: wire audio asset loading for all BGM and SFX
+d3c8ba527cd7d6c69d5cd5aba5c3c79302458a84,2026-02-24T21:17:18+00:00,chore: Wave 12 WIP — battle backgrounds, weather, tutorial (agents active)
+c7dc2b8f1168815ad6a50f57a6155eb972533854,2026-02-24T16:16:16-05:00,feat: add audio assets for BGM and SFX
+c571251f9b20452d3aca4da851d6cc9891b77d8a,2026-02-24T21:10:20+00:00,chore: Wave 12 WIP — tutorial and weather systems (agents in progress)
+b6388b8e17ad8f455353f5d02004bbf07524a370,2026-02-24T21:00:19+00:00,feat: Wave 11 — achievement wiring, overworld sprites, integration tests
+7ae7d7a4f0b9771d8e6dc2a89f33b23dfe0fa28c,2026-02-24T20:49:50+00:00,feat: Wave 10 — achievements, difficulty select, NPC content, save tests
+2c772607a169e50ce50c262930fb2e10f9504a26,2026-02-24T20:42:23+00:00,feat: Wave 9 — difficulty wiring, battle log events, save slot UI
+0a8cb00d47d58023dc2ca0cc4821a2a9cbe0a639,2026-02-24T20:31:07+00:00,feat: Wave 8 — bestiary, difficulty system, sprites plugin, display settings
+eb9f279b321c51894ea225eadc444c2b9b5b06a7,2026-02-24T20:23:00+00:00,feat: Wave 7 — enhanced summons, djinn tests, auto-save, Elder NPC, enemy data tests
+07dcad6900b7e1b38c7fe6228f31960973ef929d,2026-02-24T19:49:07+00:00,feat: wire story flags into recruitment, tower, and victory systems
+a5cff650d52035e39c7e8dff1464ea29e14b542e,2026-02-24T19:46:27+00:00,feat: Wave 6 — story flags, ability expansion, djinn/item battle selection
+aab25da54ebc47d4f4abd3be4c6dd16b824e2580,2026-02-24T19:27:55+00:00,feat: Wave 5 — battle log, status helpers, shop/item tests, encounter visuals
+0832b8ea4ccd46a6037d80ae6d384da298b4c638,2026-02-24T19:11:08+00:00,feat: Wave 4 — tiered encounters, inn healing, tower progression, flee fix, tests
+fa21356d961371c042295d349b4e6bf8c99b1ede,2026-02-24T18:59:28+00:00,feat: Wave 3 — game flow, recruitment, defeat screen, party management, enemy tiers
+fa41f836e665fc510f4e53d884ae410da8ff0223,2026-02-24T18:42:12+00:00,feat: comprehensive battle system overhaul, tower dungeon, party persistence
+45a9606af14d0977a604e01e6f19bdd752464e0f,2026-02-24T18:08:26+00:00,feat: spawn party battle units with equipment bonuses, equip/unequip inventory, clippy clean
+019f816321079ff8e3b469ca9906e46b9395a225,2026-02-24T17:56:31+00:00,feat: multi-agent game improvements — abilities, items, shop, djinn
+7eed83e0033aedffe965d887f662359b9071d0e1,2026-02-19T10:15:53-05:00,chore: add CLAUDE.md, AGENTS.md, and pending plugin updates
+4d6fd73d6d70a9a92a19d0a4e64c53b3dc69c00b,2026-02-19T04:22:21-05:00,feat: add inventory and shop systems (Gemini WIP)
+0fb9fd092375542074ea985783df3865d767f566,2026-02-19T04:09:04-05:00,chore: suppress dead_code warnings on intentional stubs
+1f6a7067148c98e3a67bd473de2360ee72c56ce6,2026-02-19T04:06:28-05:00,feat: wire overworld encounters, save/load, and audio hooks
+49f59b861170f5796af385af27ed4c561e4f9bfc,2026-02-19T03:57:42-05:00,feat: wire battle UI to real battle system
+52d0e1c7d01fe48f3cf810190da2893acf099a5a,2026-02-19T03:49:46-05:00,feat: add complete battle system (types, damage, AI, status, djinn, rewards)
+061aa3fffe0e7c8331bbbd5d685954799239545d,2026-02-19T03:45:51-05:00,refactor: remove duplicate types from components/battle.rs
+43958559ae5c85184d0efad6b99358c0f6b976b6,2026-02-19T03:31:57-05:00,feat: UI screens + overworld + battle UI (Phases 1-4)
+a12f2d5c91178f439b9d3796c87462ba111aac23,2026-02-19T03:08:07-05:00,feat: core engine + game data layer (Phases 1-4)
