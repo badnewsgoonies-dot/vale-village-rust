@@ -1,6 +1,28 @@
 # Orchestration Metrics: Vale Village Rust Multi-Agent Build
 
-Quantitative analysis of a 4-hour orchestration session (2026-02-24, 17:56–22:05 UTC). 72 Task dispatches across 21 waves, 38 commits, ~30 source files. Data sources: 14MB session log (5,704 JSONL entries) and full git history.
+Quantitative analysis of a 4-hour orchestration session (2026-02-24, 17:56–22:05 UTC). 72 Task dispatches, 38 commits, ~30 source files. Data sources: 14MB session log (5,704 JSONL entries) and full git history.
+
+### Wave Numbering
+
+Two numbering systems exist. **Git waves** (13 named waves in commit messages) count only the orchestrator's labeled build rounds. **Session waves** (21 dispatch batches in the JSONL log) count every parallel dispatch including recon, integration sub-steps, and assessment rounds. This document uses **Git wave numbers** as primary, with session wave numbers in parentheses where the mapping matters.
+
+| Git Wave | Session Wave | Time (UTC) | Commit | Content |
+|:---:|:---:|:---:|---|---|
+| 1 | 2 | 17:56 | `019f816` | Abilities, items, shop, djinn (5 agents) |
+| 2 | 5 | 18:42 | `fa41f83` | Battle overhaul, tower dungeon, party persistence |
+| 3 | 6 | 18:59 | `fa21356` | Game flow, recruitment, defeat, enemy tiers |
+| 4 | 8 | 19:11 | `0832b8e` | Tiered encounters, inn healing, tower, flee fix |
+| 5 | 9 | 19:27 | `aab25da` | Battle log, status helpers, shop/item tests |
+| 6 | 10 | 19:46 | `a5cff65` | Story flags, ability expansion, djinn selection |
+| 7 | 13 | 20:23 | `eb9f279` | Enhanced summons, djinn tests, auto-save, Elder NPC |
+| 8 | 15 | 20:31 | `0a8cb00` | Bestiary, difficulty system, sprites plugin |
+| 9 | 16 | 20:42 | `2c77260` | Difficulty wiring, battle log events, save slot UI |
+| 10 | 17 | 20:49 | `7ae7d7a` | Achievements, difficulty select, NPC content |
+| 11 | 18 | 21:00 | `b6388b8` | Achievement wiring, overworld sprites |
+| 12 | 20 | 21:10–21:34 | `c571251`–`3c330a6` | Weather, tutorial, enemies, audio (15 commits) |
+| 13 | 21 | 22:05 | `d60bfbd` | Weather damage, battle SFX, inventory prep |
+
+Session waves 3–4, 7, 11–12, 14, 19 were recon dispatches, integration sub-steps, or assessment rounds that didn't produce named wave commits.
 
 ---
 
@@ -24,23 +46,23 @@ Quantitative analysis of a 4-hour orchestration session (2026-02-24, 17:56–22:
 
 The git commit history hides collisions because the orchestrator resolved them before committing. The session log reveals the actual dispatch-level picture:
 
-| Wave | Agents | Scope Style | Collisions | Colliding Files |
-|------|:---:|---|:---:|---|
-| 2 | 5 | Explicit: `"ONLY edit this file"` | 0 | -- |
-| 5 | 5 | Explicit: `"ONLY modify this one file"` | 0 | -- |
-| 6 | 3 | Explicit: `"must ONLY modify"` | 0 | -- |
-| 7 | 6 | Implicit (primary file mentioned) | 0 | -- |
-| **8** | **5** | **Implicit** | **1** | **`overworld.rs`** (Tiered encounters + Inn healing) |
-| **9** | **4** | **Implicit** | **1** | **`battle_ui.rs`** (Action log + Status indicators) |
-| 10 | 3 | Implicit | 0 | -- |
-| 12 | 5 | Explicit: `"Only modify"` | 0 | -- |
-| **13** | **5** | **Explicit** | **1** | **`battle/djinn.rs`** (Wire summons + Djinn tests) |
-| **15** | **5** | **Implicit** | **1** | **`core_plugin.rs`** (Bestiary + Difficulty) |
-| **16** | **4** | **Implicit** | **1** | **`battle_ui.rs`** (Sprites + Log events) |
-| 17 | 4 | Implicit | 0 | -- |
-| 18 | 3 | Implicit | 0 | -- |
-| 20 | 5 | Implicit | 0 | -- |
-| 21 | 4 | Implicit | 0 | -- |
+| Git Wave (Session) | Agents | Scope Style | Collisions | Colliding Files |
+|:---:|:---:|---|:---:|---|
+| 1 (s2) | 5 | Explicit: `"ONLY edit this file"` | 0 | -- |
+| 2 (s5) | 5 | Explicit: `"ONLY modify this one file"` | 0 | -- |
+| 3 (s6) | 3 | Explicit: `"must ONLY modify"` | 0 | -- |
+| 3–4 (s7) | 6 | Implicit (primary file mentioned) | 0 | -- |
+| **4 (s8)** | **5** | **Implicit** | **1** | **`overworld.rs`** (Tiered encounters + Inn healing) |
+| **5 (s9)** | **4** | **Implicit** | **1** | **`battle_ui.rs`** (Action log + Status indicators) |
+| 6 (s10) | 3 | Implicit | 0 | -- |
+| 6–7 (s12) | 5 | Explicit: `"Only modify"` | 0 | -- |
+| **7 (s13)** | **5** | **Explicit** | **1** | **`battle/djinn.rs`** (Wire summons + Djinn tests) |
+| **8 (s15)** | **5** | **Implicit** | **1** | **`core_plugin.rs`** (Bestiary + Difficulty) |
+| **9 (s16)** | **4** | **Implicit** | **1** | **`battle_ui.rs`** (Sprites + Log events) |
+| 10 (s17) | 4 | Implicit | 0 | -- |
+| 11 (s18) | 3 | Implicit | 0 | -- |
+| 12 (s20) | 5 | Implicit | 0 | -- |
+| 13 (s21) | 4 | Implicit | 0 | -- |
 
 ### Collision Rate
 
@@ -54,8 +76,8 @@ The git commit history hides collisions because the orchestrator resolved them b
 
 A critical pattern: the orchestrator's scope enforcement **degraded over time**.
 
-- **Waves 2–6**: Used explicit hard constraints (`"Your ONLY job is to edit X"`, `"DO NOT touch any other files"`). Result: **0 collisions**.
-- **Waves 7–21**: Shifted to implicit scoping (primary file mentioned in prompt but no hard constraint). Result: **all 5 collisions occurred in this phase**.
+- **Git Waves 1–3** (session 2–6): Used explicit hard constraints (`"Your ONLY job is to edit X"`, `"DO NOT touch any other files"`). Result: **0 collisions**.
+- **Git Waves 4–13** (session 7–21): Shifted to implicit scoping (primary file mentioned in prompt but no hard constraint). Result: **all 5 collisions occurred in this phase** (Git Waves 4, 5, 7, 8, 9).
 
 This directly tests the paper's finding that "scope enforcement through prompts fails completely under compiler pressure." The orchestrator started with mechanical scope constraints and they worked. When it relaxed to implicit scoping — exactly the pattern the paper warns against — collisions appeared.
 
@@ -71,23 +93,23 @@ Two complementary measurements:
 
 ### Turn-Level Integration Cost (from Session Log)
 
-| Wave | Agents | Integration Turns | Manual Edits | check | test | clippy | fmt | Key Issue |
-|------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|---|
-| 2 | 5 | **118** | **29** | 3 | 6 | 5 | 3 | Massive clippy cleanup (23 warnings) |
-| 5 | 5 | 46 | 13 | 5 | 3 | 0 | 0 | Tower module wiring, signature mismatches |
-| 6 | 3 | 69 | 8 | 4 | 4 | 3 | 3 | `systems.rs` function wiring |
-| 7 | 6 | 64 | 6 | 4 | 2 | 4 | 3 | Battle UI wiring, inventory fixes |
-| 8 | 5 | 44 | 5 | 3 | 2 | 3 | 1 | Flee system wiring, tower integration |
-| 9 | 4 | 48 | 7 | 4 | 3 | 2 | 1 | `BattleUnit` helper dead_code |
-| 10 | 3 | 65 | 8 | 5 | 5 | 3 | 2 | Story flag cross-wiring to 3 files |
-| 12+13 | 10 | 3 | 0 | 0 | 0 | 0 | 0 | (agents dispatched back-to-back, minimal gap) |
-| 14 | 1 | 53 | 5 | 9 | 2 | 5 | 0 | Post-assessment heavy clippy |
-| 15 | 5 | 23 | 4 | 3 | 2 | 4 | 0 | Bestiary + difficulty wiring |
-| 16 | 4 | 14 | 0 | 5 | 1 | 1 | 1 | Clean integration |
-| 17 | 4 | 28 | 2 | 7 | 2 | 3 | 0 | Check-heavy, mostly clean |
-| 18 | 3 | 20 | 1 | 4 | 2 | 3 | 2 | Minimal fix-up |
-| **20** | **5** | **137** | **9** | **23** | **6** | **15** | **4** | **Catastrophic: agents fought orchestrator** |
-| 21 | 4 | 15 | 0 | 5 | 2 | 0 | 0 | Clean integration |
+| Git Wave (Session) | Agents | Integration Turns | Manual Edits | check | test | clippy | fmt | Key Issue |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|---|
+| 1 (s2) | 5 | **118** | **29** | 3 | 6 | 5 | 3 | Massive clippy cleanup (23 warnings) |
+| 2 (s5) | 5 | 46 | 13 | 5 | 3 | 0 | 0 | Tower module wiring, signature mismatches |
+| 3 (s6) | 3 | 69 | 8 | 4 | 4 | 3 | 3 | `systems.rs` function wiring |
+| 3–4 (s7) | 6 | 64 | 6 | 4 | 2 | 4 | 3 | Battle UI wiring, inventory fixes |
+| 4 (s8) | 5 | 44 | 5 | 3 | 2 | 3 | 1 | Flee system wiring, tower integration |
+| 5 (s9) | 4 | 48 | 7 | 4 | 3 | 2 | 1 | `BattleUnit` helper dead_code |
+| 6 (s10) | 3 | 65 | 8 | 5 | 5 | 3 | 2 | Story flag cross-wiring to 3 files |
+| 7+7 (s12+13) | 10 | 3 | 0 | 0 | 0 | 0 | 0 | (agents dispatched back-to-back) |
+| assess (s14) | 1 | 53 | 5 | 9 | 2 | 5 | 0 | Post-assessment heavy clippy |
+| 8 (s15) | 5 | 23 | 4 | 3 | 2 | 4 | 0 | Bestiary + difficulty wiring |
+| 9 (s16) | 4 | 14 | 0 | 5 | 1 | 1 | 1 | Clean integration |
+| 10 (s17) | 4 | 28 | 2 | 7 | 2 | 3 | 0 | Check-heavy, mostly clean |
+| 11 (s18) | 3 | 20 | 1 | 4 | 2 | 3 | 2 | Minimal fix-up |
+| **12 (s20)** | **5** | **137** | **9** | **23** | **6** | **15** | **4** | **Catastrophic: agents fought orchestrator** |
+| 13 (s21) | 4 | 15 | 0 | 5 | 2 | 0 | 0 | Clean integration |
 
 **Totals**: 812 integration turns, 97 manual edits, 86 checks, 44 tests, 51 clippy runs, ~20 fmt runs.
 
@@ -99,10 +121,10 @@ Two complementary measurements:
 | **Total integration turns** | 812 |
 | **Ratio** | **11.3 integration turns per dispatch** |
 | **Integration commits** | ~10 of 38 total (26%) |
-| **Heaviest wave (turns)** | Wave 20: 137 turns, 23 check runs, 15 clippy runs |
-| **Heaviest wave (calendar)** | Wave 12: 15 commits in 24 minutes, ~65% integration |
+| **Heaviest wave (turns)** | Git Wave 12 (s20): 137 turns, 23 check runs, 15 clippy runs |
+| **Heaviest wave (calendar)** | Git Wave 12 (s20): 15 commits in 24 minutes, ~65% integration |
 
-### Wave 2: First Integration (118 turns)
+### Git Wave 1 (s2): First Integration (118 turns)
 
 The first 5-agent parallel dispatch produced the most instructive integration:
 
@@ -112,7 +134,7 @@ The first 5-agent parallel dispatch produced the most instructive integration:
 4. **Clippy cascade**: 23 warnings on first run (11× `collapsible_if`, 4× `too_many_arguments`, 1× `impl can be derived`). Orchestrator performed 16 edit operations across 6 files.
 5. **Gate sequence**: CHECK → fix → CHECK → fix → CLIPPY → fix × 3 → FMT → TEST → commit
 
-### Wave 20: Catastrophic Integration (137 turns)
+### Git Wave 12 (s20): Catastrophic Integration (137 turns)
 
 The session's worst integration. Direct quotes from the orchestrator:
 
@@ -192,7 +214,7 @@ Agent added an elder NPC using an `ElderNpc` component. **Compile error E0425**:
 
 ### Verdict
 
-Strict file ownership **eliminated agent-agent collisions when enforced explicitly** (Waves 2–6: 0%). When enforcement relaxed to implicit (Waves 7+), collisions appeared (33% of waves).
+Strict file ownership **eliminated agent-agent collisions when enforced explicitly** (Git Waves 1–3: 0%). When enforcement relaxed to implicit (Git Waves 4+), collisions appeared (33% of dispatch batches).
 
 The cost: **the orchestrator becomes the sole integrator**, performing 97 manual edits and 812 integration turns. For a 30-file project, this was viable (11.3:1 ratio). For a 300-file project, the wiring backlog would dominate — unless the orchestrator pre-computed a dependency graph and dispatched integration agents alongside build agents.
 
@@ -218,17 +240,17 @@ CHECK (fast fail) → [fix] → CHECK → ... → CLIPPY → FMT → TEST → co
 
 | Wave Commit | Final Gate Sequence | Terminal Gate |
 |---|---|:---:|
-| Wave 2 | CHECK → TEST | TEST |
-| Wave 2 cleanup | CLIPPY → TEST → FMT → FMT → CLIPPY | CLIPPY |
-| Wave 5 | FMT → FMT → CLIPPY → CLIPPY → TEST | TEST |
-| Wave 7 | CHECK → CLIPPY → CLIPPY → FMT → TEST | TEST |
-| Wave 8 | FMT → CLIPPY → CLIPPY → CLIPPY → TEST | TEST |
-| Wave 9 | CHECK → FMT → CLIPPY → CLIPPY → TEST | TEST |
-| Wave 10 | CHECK → CLIPPY → CLIPPY → FMT → TEST | TEST |
-| Wave 12+13 | CLIPPY → CLIPPY → CLIPPY → CLIPPY → TEST | TEST |
-| Wave 15 | CLIPPY → CLIPPY → CLIPPY → CLIPPY → TEST | TEST |
-| Wave 17 | TEST → CLIPPY → CLIPPY → CLIPPY → TEST | TEST |
-| Wave 20 | CLIPPY → CLIPPY → CLIPPY → TEST → FMT | FMT |
+| Git 1 (s2) | CHECK → TEST | TEST |
+| Git 1 cleanup | CLIPPY → TEST → FMT → FMT → CLIPPY | CLIPPY |
+| Git 2 (s5) | FMT → FMT → CLIPPY → CLIPPY → TEST | TEST |
+| Git 3–4 (s7) | CHECK → CLIPPY → CLIPPY → FMT → TEST | TEST |
+| Git 4 (s8) | FMT → CLIPPY → CLIPPY → CLIPPY → TEST | TEST |
+| Git 5 (s9) | CHECK → FMT → CLIPPY → CLIPPY → TEST | TEST |
+| Git 6 (s10) | CHECK → CLIPPY → CLIPPY → FMT → TEST | TEST |
+| Git 7 (s12+13) | CLIPPY → CLIPPY → CLIPPY → CLIPPY → TEST | TEST |
+| Git 8 (s15) | CLIPPY → CLIPPY → CLIPPY → CLIPPY → TEST | TEST |
+| Git 10 (s17) | TEST → CLIPPY → CLIPPY → CLIPPY → TEST | TEST |
+| Git 12 (s20) | CLIPPY → CLIPPY → CLIPPY → TEST → FMT | FMT |
 
 **10 of 14 clean commits end with TEST as the terminal gate.** The orchestrator trusted passing tests as the commit signal.
 
@@ -245,7 +267,7 @@ Clippy has the **highest failure rate** (45%) despite being invoked less often t
 
 ### Clippy's Behavior-Shaping Effect
 
-In Wave 2 integration, `cargo clippy -D warnings` forced refactors in 6 files the agents didn't own:
+In Git Wave 1 (s2) integration, `cargo clippy -D warnings` forced refactors in 6 files the agents didn't own:
 
 | File | Clippy Lint | Fix Required |
 |------|-------------|-------------|
@@ -278,7 +300,7 @@ In Wave 2 integration, `cargo clippy -D warnings` forced refactors in 6 files th
 The orchestrator **should have run clippy before dispatching any agents.** The 23 pre-existing clippy warnings were technical debt from a prior Gemini WIP commit (4d6fd73d). Cleaning them first would have:
 - Eliminated Wave 2's 118-turn integration (the single most expensive integration)
 - Prevented agents from encountering lint errors in files they didn't own
-- Reduced the 29 manual edits in Wave 2 to near-zero
+- Reduced the 29 manual edits in Git Wave 1 to near-zero
 
 ### Optimal Gate Order for Rust Multi-Agent Builds
 
@@ -297,8 +319,8 @@ Rationale:
 ### The Orchestrator Learned
 
 The session log shows gate ordering evolution:
-- **Waves 2–6**: CHECK was the primary gate. Clippy ran only at the end.
-- **Waves 7+**: Orchestrator shifted to running CLIPPY directly (which subsumes CHECK), reducing total gate iterations. The "CLIPPY → CLIPPY → CLIPPY → TEST" pattern became standard.
+- **Git Waves 1–3** (session 2–6): CHECK was the primary gate. Clippy ran only at the end.
+- **Git Waves 4+** (session 7+): Orchestrator shifted to running CLIPPY directly (which subsumes CHECK), reducing total gate iterations. The "CLIPPY → CLIPPY → CLIPPY → TEST" pattern became standard.
 
 ---
 
@@ -306,12 +328,12 @@ The session log shows gate ordering evolution:
 
 | Metric | Value | Implication |
 |--------|-------|-------------|
-| Collision rate (explicit scope) | **0%** (0/8 waves) | Hard scope constraints work perfectly |
-| Collision rate (implicit scope) | **33%** (5/15 waves) | Relaxed prompts = the paper's 0/20 finding reproduced |
+| Collision rate (explicit scope, Git Waves 1–3) | **0%** (0/8 dispatch batches) | Hard scope constraints work perfectly |
+| Collision rate (implicit scope, Git Waves 4–13) | **33%** (5/15 dispatch batches) | Relaxed prompts = the paper's 0/20 finding reproduced |
 | Integration turns per dispatch | **11.3:1** (812 / 72) | Integration dominates orchestrator time by an order of magnitude |
 | Integration commits | **26%** of total (10/38) | 1 in 4 commits is pure cross-module plumbing |
-| Worst integration (turns) | **Wave 20: 137 turns** | Agents fighting orchestrator edits |
-| Worst integration (calendar) | **Wave 12: 15 commits / 24 min** | Non-linear scaling with agent count |
+| Worst integration (turns) | **Git Wave 12: 137 turns** | Agents fighting orchestrator edits |
+| Worst integration (calendar) | **Git Wave 12: 15 commits / 24 min** | Non-linear scaling with agent count |
 | Documented cross-wiring gaps | **10** | Each required orchestrator manual intervention |
 | Manual orchestrator edits | **97** across all waves | Strict scope → orchestrator is the wiring bottleneck |
 | Most disruptive gate | **`cargo clippy`** (45% failure rate) | Highest failure rate, cross-file blast radius |
