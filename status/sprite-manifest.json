@@ -1,0 +1,533 @@
+{
+  "enemies": [
+    {
+      "id": "mercury-slime",
+      "name": "Mercury Slime",
+      "element": "Mercury",
+      "tier": 1,
+      "level": 1
+    },
+    {
+      "id": "venus-wolf",
+      "name": "Earthbound Wolf",
+      "element": "Venus",
+      "tier": 1,
+      "level": 1
+    },
+    {
+      "id": "mars-bandit",
+      "name": "Flame Bandit",
+      "element": "Mars",
+      "tier": 1,
+      "level": 2
+    },
+    {
+      "id": "jupiter-sprite",
+      "name": "Wind Sprite",
+      "element": "Jupiter",
+      "tier": 1,
+      "level": 2
+    },
+    {
+      "id": "venus-beetle",
+      "name": "Stone Beetle",
+      "element": "Venus",
+      "tier": 1,
+      "level": 2
+    },
+    {
+      "id": "mars-wolf",
+      "name": "Flame Wolf",
+      "element": "Mars",
+      "tier": 1,
+      "level": 2
+    },
+    {
+      "id": "mercury-wolf",
+      "name": "Frost Wolf",
+      "element": "Mercury",
+      "tier": 1,
+      "level": 2
+    },
+    {
+      "id": "jupiter-wolf",
+      "name": "Storm Wolf",
+      "element": "Jupiter",
+      "tier": 1,
+      "level": 2
+    },
+    {
+      "id": "venus-bear",
+      "name": "Mountain Bear",
+      "element": "Venus",
+      "tier": 1,
+      "level": 4
+    },
+    {
+      "id": "mars-bear",
+      "name": "Inferno Bear",
+      "element": "Mars",
+      "tier": 1,
+      "level": 4
+    },
+    {
+      "id": "mercury-bear",
+      "name": "Glacier Bear",
+      "element": "Mercury",
+      "tier": 1,
+      "level": 4
+    },
+    {
+      "id": "jupiter-bear",
+      "name": "Thunder Bear",
+      "element": "Jupiter",
+      "tier": 1,
+      "level": 4
+    },
+    {
+      "id": "frost-mystic",
+      "name": "Frost Mystic",
+      "element": "Mercury",
+      "tier": 1,
+      "level": 2
+    },
+    {
+      "id": "gale-priest",
+      "name": "Gale Priest",
+      "element": "Jupiter",
+      "tier": 1,
+      "level": 2
+    },
+    {
+      "id": "stone-guardian",
+      "name": "Stone Guardian",
+      "element": "Venus",
+      "tier": 1,
+      "level": 3
+    },
+    {
+      "id": "ember-cleric",
+      "name": "Ember Cleric",
+      "element": "Mars",
+      "tier": 1,
+      "level": 3
+    },
+    {
+      "id": "earth-shaman",
+      "name": "Earth Shaman",
+      "element": "Venus",
+      "tier": 1,
+      "level": 4
+    },
+    {
+      "id": "tide-enchanter",
+      "name": "Tide Enchanter",
+      "element": "Mercury",
+      "tier": 1,
+      "level": 4
+    },
+    {
+      "id": "frost-oracle",
+      "name": "Frost Oracle",
+      "element": "Mercury",
+      "tier": 1,
+      "level": 5
+    },
+    {
+      "id": "mushroom",
+      "name": "Mushroom",
+      "element": "Venus",
+      "tier": 1,
+      "level": 1
+    },
+    {
+      "id": "cave-bat",
+      "name": "Cave Bat",
+      "element": "Jupiter",
+      "tier": 1,
+      "level": 1
+    },
+    {
+      "id": "rat-king",
+      "name": "Rat King",
+      "element": "Venus",
+      "tier": 1,
+      "level": 2
+    },
+    {
+      "id": "wild-boar",
+      "name": "Wild Boar",
+      "element": "Venus",
+      "tier": 1,
+      "level": 3
+    },
+    {
+      "id": "earth-scout",
+      "name": "Earth Scout",
+      "element": "Venus",
+      "tier": 1,
+      "level": 1
+    },
+    {
+      "id": "flame-scout",
+      "name": "Flame Scout",
+      "element": "Mars",
+      "tier": 1,
+      "level": 1
+    },
+    {
+      "id": "frost-scout",
+      "name": "Frost Scout",
+      "element": "Mercury",
+      "tier": 1,
+      "level": 1
+    },
+    {
+      "id": "gale-scout",
+      "name": "Gale Scout",
+      "element": "Jupiter",
+      "tier": 1,
+      "level": 1
+    },
+    {
+      "id": "terra-soldier",
+      "name": "Terra Soldier",
+      "element": "Venus",
+      "tier": 1,
+      "level": 3
+    },
+    {
+      "id": "blaze-soldier",
+      "name": "Blaze Soldier",
+      "element": "Mars",
+      "tier": 1,
+      "level": 3
+    },
+    {
+      "id": "tide-soldier",
+      "name": "Tide Soldier",
+      "element": "Mercury",
+      "tier": 1,
+      "level": 3
+    },
+    {
+      "id": "wind-soldier",
+      "name": "Wind Soldier",
+      "element": "Jupiter",
+      "tier": 1,
+      "level": 3
+    },
+    {
+      "id": "stone-captain",
+      "name": "Stone Captain",
+      "element": "Venus",
+      "tier": 1,
+      "level": 5
+    },
+    {
+      "id": "inferno-captain",
+      "name": "Inferno Captain",
+      "element": "Mars",
+      "tier": 1,
+      "level": 5
+    },
+    {
+      "id": "glacier-captain",
+      "name": "Glacier Captain",
+      "element": "Mercury",
+      "tier": 1,
+      "level": 5
+    },
+    {
+      "id": "thunder-captain",
+      "name": "Thunder Captain",
+      "element": "Jupiter",
+      "tier": 1,
+      "level": 5
+    },
+    {
+      "id": "mountain-commander",
+      "name": "Mountain Commander",
+      "element": "Venus",
+      "tier": 2,
+      "level": 7
+    },
+    {
+      "id": "fire-commander",
+      "name": "Fire Commander",
+      "element": "Mars",
+      "tier": 2,
+      "level": 7
+    },
+    {
+      "id": "storm-commander",
+      "name": "Storm Commander",
+      "element": "Mercury",
+      "tier": 2,
+      "level": 7
+    },
+    {
+      "id": "gale-commander",
+      "name": "Gale Commander",
+      "element": "Jupiter",
+      "tier": 2,
+      "level": 7
+    },
+    {
+      "id": "terra-warden",
+      "name": "Terra Warden",
+      "element": "Venus",
+      "tier": 2,
+      "level": 6
+    },
+    {
+      "id": "flame-herald",
+      "name": "Flame Herald",
+      "element": "Mars",
+      "tier": 2,
+      "level": 7
+    },
+    {
+      "id": "stone-golem",
+      "name": "Stone Golem",
+      "element": "Venus",
+      "tier": 2,
+      "level": 6
+    },
+    {
+      "id": "dire-wolf",
+      "name": "Dire Wolf",
+      "element": "Venus",
+      "tier": 2,
+      "level": 7
+    },
+    {
+      "id": "dark-mage",
+      "name": "Dark Mage",
+      "element": "Jupiter",
+      "tier": 2,
+      "level": 8
+    },
+    {
+      "id": "sand-scorpion",
+      "name": "Sand Scorpion",
+      "element": "Mars",
+      "tier": 2,
+      "level": 8
+    },
+    {
+      "id": "wyvern",
+      "name": "Wyvern",
+      "element": "Jupiter",
+      "tier": 3,
+      "level": 11
+    },
+    {
+      "id": "frost-giant",
+      "name": "Frost Giant",
+      "element": "Mercury",
+      "tier": 3,
+      "level": 12
+    },
+    {
+      "id": "shadow-knight",
+      "name": "Shadow Knight",
+      "element": "Venus",
+      "tier": 3,
+      "level": 13
+    },
+    {
+      "id": "thunder-drake",
+      "name": "Thunder Drake",
+      "element": "Jupiter",
+      "tier": 3,
+      "level": 14
+    },
+    {
+      "id": "ancient-dragon",
+      "name": "Ancient Dragon",
+      "element": "Mars",
+      "tier": 4,
+      "level": 16
+    },
+    {
+      "id": "lich-lord",
+      "name": "Lich Lord",
+      "element": "Mercury",
+      "tier": 4,
+      "level": 17
+    },
+    {
+      "id": "storm-titan-elite",
+      "name": "Storm Titan",
+      "element": "Jupiter",
+      "tier": 4,
+      "level": 18
+    },
+    {
+      "id": "abyssal-horror",
+      "name": "Abyssal Horror",
+      "element": "Venus",
+      "tier": 4,
+      "level": 19
+    },
+    {
+      "id": "slaver-chief",
+      "name": "Slaver Chief",
+      "element": "Mars",
+      "tier": 4,
+      "level": 3
+    },
+    {
+      "id": "iron-warden",
+      "name": "Iron Warden",
+      "element": "Venus",
+      "tier": 4,
+      "level": 5
+    },
+    {
+      "id": "phoenix-lord",
+      "name": "Phoenix Lord",
+      "element": "Mars",
+      "tier": 4,
+      "level": 7
+    },
+    {
+      "id": "glacier-queen",
+      "name": "Glacier Queen",
+      "element": "Mercury",
+      "tier": 4,
+      "level": 8
+    },
+    {
+      "id": "storm-tyrant",
+      "name": "Storm Tyrant",
+      "element": "Jupiter",
+      "tier": 4,
+      "level": 9
+    },
+    {
+      "id": "earth-titan",
+      "name": "Earth Titan",
+      "element": "Venus",
+      "tier": 4,
+      "level": 10
+    },
+    {
+      "id": "infernal-dragon",
+      "name": "Infernal Dragon",
+      "element": "Mars",
+      "tier": 4,
+      "level": 12
+    },
+    {
+      "id": "leviathan",
+      "name": "Leviathan",
+      "element": "Mercury",
+      "tier": 4,
+      "level": 14
+    },
+    {
+      "id": "vale-overlord",
+      "name": "Vale Overlord",
+      "element": "Jupiter",
+      "tier": 4,
+      "level": 16
+    },
+    {
+      "id": "saturos",
+      "name": "Saturos",
+      "element": "Mars",
+      "tier": 4,
+      "level": 10
+    },
+    {
+      "id": "menardi",
+      "name": "Menardi",
+      "element": "Mars",
+      "tier": 4,
+      "level": 10
+    },
+    {
+      "id": "agatio",
+      "name": "Agatio",
+      "element": "Mars",
+      "tier": 4,
+      "level": 15
+    }
+  ],
+  "djinn": [
+    {
+      "id": "flint",
+      "name": "Flint",
+      "element": "Venus",
+      "tier": "Tier1"
+    },
+    {
+      "id": "granite",
+      "name": "Granite",
+      "element": "Venus",
+      "tier": "Tier2"
+    },
+    {
+      "id": "bane",
+      "name": "Bane",
+      "element": "Venus",
+      "tier": "Tier3"
+    },
+    {
+      "id": "forge",
+      "name": "Forge",
+      "element": "Mars",
+      "tier": "Tier1"
+    },
+    {
+      "id": "fever",
+      "name": "Fever",
+      "element": "Mars",
+      "tier": "Tier2"
+    },
+    {
+      "id": "corona",
+      "name": "Corona",
+      "element": "Mars",
+      "tier": "Tier3"
+    },
+    {
+      "id": "fizz",
+      "name": "Fizz",
+      "element": "Mercury",
+      "tier": "Tier1"
+    },
+    {
+      "id": "sleet",
+      "name": "Sleet",
+      "element": "Mercury",
+      "tier": "Tier2"
+    },
+    {
+      "id": "serac",
+      "name": "Serac",
+      "element": "Mercury",
+      "tier": "Tier3"
+    },
+    {
+      "id": "gust-djinn",
+      "name": "Gust",
+      "element": "Jupiter",
+      "tier": "Tier1"
+    },
+    {
+      "id": "squall",
+      "name": "Squall",
+      "element": "Jupiter",
+      "tier": "Tier2"
+    },
+    {
+      "id": "tempest-djinn",
+      "name": "Tempest",
+      "element": "Jupiter",
+      "tier": "Tier3"
+    }
+  ]
+}
