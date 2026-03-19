@@ -205,7 +205,7 @@ def get_output_path(entry, category, repo_root):
     else:
         return os.path.join(repo_root, "assets/sprites/battle/djinn/generated", filename)
 
-def run_batch(manifest_path, category, batch_size, start_index, repo_root, eval_sprites=True):
+def run_batch(manifest_path, category, batch_size, start_index, repo_root, eval_sprites=True, redo_mode=False):
     """Generate a batch of sprites."""
     with open(manifest_path) as f:
         manifest = json.load(f)
@@ -215,12 +215,30 @@ def run_batch(manifest_path, category, batch_size, start_index, repo_root, eval_
         print(f"No entries for category '{category}'")
         return
 
-    # Filter to entries that don't have PNGs yet
-    pending = []
-    for entry in entries:
-        out_path = get_output_path(entry, category, repo_root)
-        if not os.path.exists(out_path):
-            pending.append(entry)
+    if redo_mode:
+        # Find sprites that scored below 7 in results log
+        results_path = os.path.join(repo_root, f"status/sprite-results-{category}.jsonl")
+        redo_ids = set()
+        if os.path.exists(results_path):
+            with open(results_path) as f:
+                for line in f:
+                    r = json.loads(line)
+                    if r.get("status") == "REDO" or (r.get("score", 10) < 7 and r.get("status") != "FAILED"):
+                        redo_ids.add(r["id"])
+        pending = [e for e in entries if e["id"] in redo_ids]
+        # Delete existing PNGs so they get regenerated
+        for entry in pending:
+            out_path = get_output_path(entry, category, repo_root)
+            if os.path.exists(out_path):
+                os.remove(out_path)
+        print(f"=== REDO MODE: {len(pending)} sprites to regenerate ===", flush=True)
+    else:
+        # Filter to entries that don't have PNGs yet
+        pending = []
+        for entry in entries:
+            out_path = get_output_path(entry, category, repo_root)
+            if not os.path.exists(out_path):
+                pending.append(entry)
 
     total = len(entries)
     done = total - len(pending)
@@ -311,6 +329,7 @@ def main():
     parser.add_argument("--batch-size", type=int, default=10)
     parser.add_argument("--start-index", type=int, default=0)
     parser.add_argument("--no-eval", action="store_true", help="Skip Gemini evaluation")
+    parser.add_argument("--redo", action="store_true", help="Regenerate sprites that scored below 7")
     parser.add_argument("--list", action="store_true", help="Show progress and exit")
     parser.add_argument("--repo-root", default=".")
     args = parser.parse_args()
@@ -321,7 +340,7 @@ def main():
 
     run_batch(
         args.manifest, args.category, args.batch_size, args.start_index,
-        args.repo_root, eval_sprites=not args.no_eval,
+        args.repo_root, eval_sprites=not args.no_eval, redo_mode=args.redo,
     )
 
 if __name__ == "__main__":
