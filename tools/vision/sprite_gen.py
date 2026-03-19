@@ -251,7 +251,7 @@ def run_batch(manifest_path, category, batch_size, start_index, repo_root, eval_
 
         # Rate limit: 8s minimum between Imagen calls (Vertex AI ~5-10 RPM)
         if i > 0:
-            time.sleep(8)
+            time.sleep(12)
 
         t0 = time.time()
         png_bytes = generate_sprite(prompt)
